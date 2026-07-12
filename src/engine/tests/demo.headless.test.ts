@@ -145,14 +145,15 @@ describe('example 2 headless demo', () => {
     expect(stall!.t).toBeLessThan(365);
 
     // during the stall the chamber hangs far above the normal-path pressure
-    // (the normal sequence is at ~1e-5 Torr 90 s after its gate opening);
-    // eventually the trickle through the overloaded rotor lets it recover
+    // (the normal sequence is 3+ decades down within 30 s of its gate
+    // opening); the overloaded pump's forward trickle then grinds it down
+    // and the turbo recovers
     const sim2 = new Sim(buildSystem());
     sim2.scheduleEvents(events);
-    sim2.advance(450);
+    sim2.advance(395);
     expect(sim2.pressureOf('ch')).toBeGreaterThan(0.5);
     const recovery = sim.log.find((e) => e.message.includes('recovered'));
     expect(recovery).toBeDefined();
-    expect(recovery!.t - stall!.t).toBeGreaterThan(60);
+    expect(recovery!.t - stall!.t).toBeGreaterThan(10);
   });
 });

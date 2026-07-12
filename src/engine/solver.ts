@@ -52,24 +52,31 @@ export const DEFAULT_SOLVER_OPTIONS: SolverOptions = {
   dtInit: 1e-3,
   dtMin: 1e-9,
   dtMax: 10,
-  newtonTol: 1e-9,
+  newtonTol: 1e-7,
   // a node near the pressure floor that gets flooded needs Δu ≈ ln(p_new/p_floor)
-  // ≈ 30+ in one implicit step (at ANY dt — log-space jumps shrink only
-  // logarithmically with dt), and damped Newton walks there 3 units/iteration
-  maxNewton: 30,
+  // in one implicit step (at ANY dt — log-space jumps shrink only
+  // logarithmically with dt), and damped Newton walks there 1-3 units/iteration
+  maxNewton: 40,
   errAccept: 6e-3,
   errGrow: 8e-4,
   maxOuter: 2,
-  pFloor: 1e-16,
+  pFloor: 1e-13,
   steadyTol: 1e-6,
 };
 
-// 1e-16 Torr is 5 decades below anything measurable; a tighter floor only
-// widens the dynamic range the linear algebra must survive
-const U_MIN = Math.log(1e-16);
+// The pressure floor is 1e-13 Torr — 20× below the X-ray limit, so nothing
+// measurable is affected. A deeper floor hurts twice: damped Newton WALKS
+// log-space floods at ~1 unit/iteration, so every extra decade of floor
+// costs ~2.3 iterations whenever an empty node fills; and the wider dynamic
+// range strains the banded elimination.
+const U_MIN = Math.log(1e-13);
 const U_MAX = Math.log(2e6);
-/** entries below this u are "at the floor" — excluded from error control & steady detection */
-const U_CARE = U_MIN + 5; // ≈ 1.5e-14 Torr
+/**
+ * Entries below ~1e-12 Torr are "don't care" — excluded from error control &
+ * steady detection. Nothing measurable lives there (X-ray limit is 5e-12),
+ * and partials wandering near the floor otherwise pin the timestep.
+ */
+const U_CARE = Math.log(1e-12);
 const TIME_EPS = 1e-12;
 
 export interface StepStats {
@@ -96,6 +103,8 @@ export class Sim {
   lastRate = Infinity;
   /** diagnostic: why the last Newton solve failed */
   lastFail = '';
+  /** diagnostic: node dominating the last error estimate */
+  lastEstWorst = '';
 
   private events: SimEvent[] = [];
   private readonly nS: number;
@@ -117,6 +126,7 @@ export class Sim {
   private readonly pumpsAtInlet: number[][];
   private readonly pumpsAtBacking: number[][];
   private readonly qPumpWork: Float64Array;
+  private readonly pumpPartials: Float64Array;
 
   constructor(spec: EngineSystemSpec, opts?: Partial<SolverOptions>) {
     this.net = buildNetwork(spec);
@@ -138,6 +148,7 @@ export class Sim {
     this.uWork = new Float64Array(this.nN);
     this.pWork = new Float64Array(this.nN);
     this.qPumpWork = new Float64Array(this.nS);
+    this.pumpPartials = new Float64Array(this.nS);
 
     this.pumpsAtInlet = net.nodes.map(() => []);
     this.pumpsAtBacking = net.nodes.map(() => []);
@@ -356,7 +367,8 @@ export class Sim {
     for (const pm of net.pumps) {
       const pIn = this.pTotWork[pm.nodeIdx];
       const pBack = pm.backingIdx >= 0 ? this.pTotWork[pm.backingIdx] : 760;
-      pm.freeze(pIn, pBack);
+      for (let g = 0; g < nS; g++) this.pumpPartials[g] = this.p[g * nN + pm.nodeIdx];
+      pm.freeze(pIn, pBack, this.pumpPartials);
     }
 
     // sources (outgassing + permeation) at end time
@@ -401,7 +413,12 @@ export class Sim {
     for (const pm of net.pumps) {
       const pIn = this.pTotWork[pm.nodeIdx];
       const pBack = pm.backingIdx >= 0 ? this.pTotWork[pm.backingIdx] : 760;
-      pm.freeze(pIn, pBack);
+      for (let g = 0; g < nS; g++) {
+        this.pumpPartials[g] = net.nodes[pm.nodeIdx].fixed
+          ? this.p[g * nN + pm.nodeIdx]
+          : Math.exp(this.uNew[g * nN + pm.nodeIdx]);
+      }
+      pm.freeze(pIn, pBack, this.pumpPartials);
     }
   }
 
@@ -604,8 +621,15 @@ export class Sim {
             const un = this.uNew[off + i];
             const uo = this.u[off + i];
             if (Math.min(un, uo) < U_CARE) continue;
+            // a species vastly below its node's total is physically
+            // irrelevant there — it must not govern the global timestep
+            // (1e-7 keeps ppm-level He leak-check signals controlled)
+            if (Math.exp(un) < 1e-7 * this.pTotWork[i]) continue;
             const err = Math.abs(un - uo - r * this.duPrev[off + i]) / (1 + r);
-            if (err > est) est = err;
+            if (err > est) {
+              est = err;
+              this.lastEstWorst = `${net.species[g]}@${net.nodes[i].id} u=${un.toFixed(1)}`;
+            }
           }
         }
         if (est > opts.errAccept && dtTry > opts.dtMin && attempts < 40) {
@@ -624,7 +648,7 @@ export class Sim {
           const un = this.uNew[off + i];
           const d = un - this.u[off + i];
           this.du[off + i] = d;
-          if (Math.min(un, this.u[off + i]) >= U_CARE) {
+          if (Math.min(un, this.u[off + i]) >= U_CARE && Math.exp(un) >= 1e-7 * this.pTotWork[i]) {
             const ad = Math.abs(d);
             if (ad > maxDu) maxDu = ad;
           }
@@ -761,16 +785,27 @@ export class Sim {
         partials: Array.from({ length: nS }, (_, g) => this.p[g * nN + i]),
       })),
       gauges: net.gauges.map((gg) => gg.reading(this.partialsAt(gg.nodeIdx))),
-      pumps: net.pumps.map((pm) => ({
-        id: pm.spec.id,
-        on: pm.on,
-        sEffective: pm.effectiveSpeed(
-          this.partialsAt(pm.nodeIdx),
-          pm.backingIdx >= 0 ? this.partialsAt(pm.backingIdx) : null,
-        ),
-        atSpeed: pm.atSpeed,
-        spinFraction: pm.spinFrac,
-      })),
+      pumps: net.pumps.map((pm) => {
+        const heIdx = net.species.indexOf('He');
+        const qHelium = heIdx >= 0
+          ? pm.q(
+              heIdx,
+              this.p[heIdx * nN + pm.nodeIdx],
+              pm.backingIdx >= 0 ? this.p[heIdx * nN + pm.backingIdx] : 0,
+            )
+          : 0;
+        return {
+          id: pm.spec.id,
+          on: pm.on,
+          sEffective: pm.effectiveSpeed(
+            this.partialsAt(pm.nodeIdx),
+            pm.backingIdx >= 0 ? this.partialsAt(pm.backingIdx) : null,
+          ),
+          atSpeed: pm.atSpeed,
+          spinFraction: pm.spinFrac,
+          qHelium,
+        };
+      }),
       steadyState: this.lastRate < this.opts.steadyTol,
     };
   }

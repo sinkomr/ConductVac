@@ -283,6 +283,50 @@ export interface EventLogEntry {
   message: string;
 }
 
+// ------------------------------------------------- builder (part level) ----
+
+/** grid units for the schematic canvas (1 unit = one grid cell) */
+export interface PortRef {
+  part: string;
+  port: number;
+}
+
+export interface PartInstance {
+  id: string;
+  /** catalog part id */
+  def: string;
+  x: number;
+  y: number;
+  rot: 0 | 90 | 180 | 270;
+  /** inspector-editable values (length, material, open fraction, on, ...) */
+  params: Record<string, number | string | boolean>;
+}
+
+export interface Connection {
+  id: string;
+  a: PortRef;
+  b: PortRef;
+  /** KF centering ring with mesh screen (transmission 0.7) */
+  mesh?: boolean;
+}
+
+export interface ScriptRow {
+  id: string;
+  t: number;
+  action: SimEventAction;
+  note?: string;
+}
+
+export interface SystemDefinition {
+  version: 1;
+  name: string;
+  parts: PartInstance[];
+  connections: Connection[];
+  script: ScriptRow[];
+  humidityRH: number;
+  species?: GasId[];
+}
+
 // ------------------------------------------------------------- snapshots ----
 
 export interface GaugeReading {
@@ -306,6 +350,14 @@ export interface SimSnapshot {
   species: GasId[];
   nodes: NodeSnapshot[];
   gauges: GaugeReading[];
-  pumps: { id: string; on: boolean; sEffective: number; atSpeed: boolean; spinFraction: number }[];
+  pumps: {
+    id: string;
+    on: boolean;
+    sEffective: number;
+    atSpeed: boolean;
+    spinFraction: number;
+    /** He throughput at the inlet, Torr·L/s (leak-detector readout) */
+    qHelium: number;
+  }[];
   steadyState: boolean;
 }
