@@ -47,6 +47,9 @@ export type MaterialId =
   | 'ptfe'
   | 'peek'
   | 'kapton'
+  | 'graphite'
+  | 'nylon'
+  | 'epoxy-fr4'
   | 'test-constant'; // n = 0 test material (constant outgassing), used by validation tests
 
 export interface MaterialSpec {

@@ -234,6 +234,9 @@ function liveParamAction(inst: PartInstance, key: string, value: number | string
     return { type: 'valve', edgeId: inst.id, open: (value as number) / 100 };
   }
   if (def.kind === 'pump' && key === 'on') return { type: 'pump', pumpId: inst.id, on: Boolean(value) };
+  if ((def.kind === 'coldtrap-meissner' || def.kind === 'coldtrap-inline') && key === 'on') {
+    return { type: 'pump', pumpId: inst.id, on: Boolean(value) };
+  }
   if (def.kind === 'pump' && key === 'ballast') return { type: 'ballast', pumpId: inst.id, on: Boolean(value) };
   if (def.kind === 'gauge' && key === 'enabled') return { type: 'gauge', gaugeId: inst.id, enabled: Boolean(value) };
   if (def.kind === 'leak' && key === 'qStd') return { type: 'setLeak', leakId: inst.id, qStd: value as number };

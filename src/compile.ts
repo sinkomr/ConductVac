@@ -3,6 +3,7 @@ import type {
   EnginePumpSpec, EngineSystemSpec, GasId, GaugeType, SimEventAction,
   SurfaceSpec, SystemDefinition,
 } from './types';
+import { DEFAULT_SPECIES } from './types';
 import { PART_BY_ID, portFlange } from './data/fittings';
 import { FLANGE_BY_ID } from './data/flanges';
 import { PUMP_BY_ID } from './data/pumps';
@@ -41,6 +42,18 @@ const NODE_BUDGET = 2000;
 
 export function compileSystem(sys: SystemDefinition): CompiledSystem {
   const warnings: string[] = [];
+
+  // Gas admittance valves must have their gas in the ACTIVE species set, or
+  // injection silently no-ops (the reservoir's partial would be dropped).
+  // The engine is species-general — extend the set automatically.
+  const species: GasId[] = [...(sys.species ?? DEFAULT_SPECIES)];
+  for (const inst of sys.parts) {
+    const def = PART_BY_ID[inst.def];
+    if (def?.kind === 'valve-gas') {
+      const gas = String(inst.params.gas ?? def.defaults.gas ?? 'N2') as GasId;
+      if (!species.includes(gas)) species.push(gas);
+    }
+  }
   const nodes: EngineNodeSpec[] = [];
   const edges: EngineEdgeSpec[] = [];
   const pumps: EnginePumpSpec[] = [];
@@ -302,6 +315,84 @@ export function compileSystem(sys: SystemDefinition): CompiledSystem {
         break;
       }
 
+      case 'payload': {
+        // items INSIDE the chamber: area → outgassing, volume → displacement
+        // (emitted as negative volume; the port junction merges into the host)
+        let area: number;
+        let volume: number;
+        let mat = material;
+        if (def.data.payload === 'graphite') {
+          const W = num('W', 100) / 10, H = num('H', 100) / 10, D = num('D', 100) / 10; // cm
+          area = 2 * (W * H + H * D + W * D);
+          volume = (W * H * D) / 1000;
+          mat = 'graphite';
+        } else if (def.data.payload === 'cable') {
+          const Lcm = num('length', 5) * 100;
+          const dCm = num('diameter', 10) / 10;
+          area = Math.PI * dCm * Lcm;
+          volume = (Math.PI * (dCm / 2) ** 2 * Lcm * 0.6) / 1000; // 60% fill
+          mat = (str('insulation', 'ptfe') || 'ptfe') as SurfaceSpec['material'];
+        } else {
+          area = num('area', 100);
+          volume = num('volume', 0);
+        }
+        junction(0, -volume, [{ area, material: mat, baked: bool('baked') }]);
+        regionNode[`${id}:0`] = portNode[`${id}:0`];
+        break;
+      }
+
+      case 'coldtrap-meissner': {
+        // 77 K surface: pumps H2O near the impingement rate, CO2 slower;
+        // nothing with a high 77 K vapor pressure (N2/O2/H2/He/Ar)
+        const A = num('area', 500);
+        const a = junction(0, 1e-3);
+        pumps.push({
+          id, node: a,
+          model: {
+            kind: 'cryo',
+            sPeak: { H2O: 10 * A, CO2: 5 * A },
+            capacity: { H2O: 100 * A, CO2: 20 * A },
+            crossoverWarn: 0.5,
+          },
+          on: bool('on'), label: `${id} (Meissner)`,
+        });
+        regionNode[`${id}:0`] = a;
+        break;
+      }
+
+      case 'coldtrap-inline': {
+        const f = FLANGE_BY_ID[str('portFlange', 'KF25')];
+        const d = (f?.boreMm ?? 24) / 10;
+        const a = junction(0, (Math.PI * (d / 2) ** 2 * d) / 1000);
+        const b = junction(1, (Math.PI * (d / 2) ** 2 * d) / 1000);
+        const mid = `${id}.body`;
+        nodes.push({
+          id: mid,
+          volume: (Math.PI * (d / 2) ** 2 * 4 * d) / 1000,
+          surfaces: [{ area: Math.PI * d * 4 * d, material: 'ss304' }],
+          label: `${id} trap body`,
+        });
+        // two half-elbows, each ×√0.4 → elbow ×0.4 total (baffled path)
+        const half = Math.sqrt(0.4);
+        edges.push(
+          { id: `${id}.e1`, a, b: mid, conductance: { kind: 'tube', d, L: 1.6 * d, bends90: 0.5 }, meshFactor: half },
+          { id: `${id}.e2`, a: mid, b, conductance: { kind: 'tube', d, L: 1.6 * d, bends90: 0.5 }, meshFactor: half },
+        );
+        pumps.push({
+          id, node: mid,
+          model: {
+            kind: 'cryo',
+            sPeak: { H2O: 10 * Math.PI * d * 4 * d, CO2: 5 * Math.PI * d * 4 * d },
+            capacity: { H2O: 500, CO2: 100 },
+            crossoverWarn: 0.5,
+          },
+          on: bool('on'), label: `${id} (LN₂ trap)`,
+        });
+        regionNode[`${id}:0`] = a;
+        regionNode[`${id}:1`] = mid;
+        break;
+      }
+
       case 'leakdetector': {
         // self-contained: hybrid drag turbo at the inlet, diaphragm backing
         const a = junction(0, 0.3);
@@ -375,9 +466,13 @@ export function compileSystem(sys: SystemDefinition): CompiledSystem {
   }
 
   // ---- merge unioned nodes ----------------------------------------------
+  // payload parts contribute NEGATIVE volume (gas displacement); track the
+  // gross positive volume per merged node so we can sanity-clamp
   const canonical = new Map<string, EngineNodeSpec>();
+  const grossVolume = new Map<string, number>();
   for (const n of nodes) {
     const root = find(n.id);
+    grossVolume.set(root, (grossVolume.get(root) ?? 0) + Math.max(0, n.volume));
     const ex = canonical.get(root);
     if (!ex) {
       canonical.set(root, { ...n, id: root, surfaces: n.surfaces ? [...n.surfaces] : [] });
@@ -386,6 +481,16 @@ export function compileSystem(sys: SystemDefinition): CompiledSystem {
       if (n.surfaces) (ex.surfaces as SurfaceSpec[]).push(...n.surfaces);
       if (n.fixed) ex.fixed = n.fixed;
       if (n.label && (!ex.label || ex.label.includes('port'))) ex.label = n.label;
+    }
+  }
+  for (const node of canonical.values()) {
+    const gross = grossVolume.get(node.id) ?? 0;
+    const floor = Math.max(0.02 * gross, 1e-4);
+    if (node.volume < floor) {
+      warnings.push(
+        `${node.label ?? node.id}: payload volume nearly fills (or exceeds) the chamber — free volume clamped to ${floor.toFixed(3)} L`,
+      );
+      node.volume = floor;
     }
   }
   for (const s of sealSurfaces) {
@@ -419,7 +524,7 @@ export function compileSystem(sys: SystemDefinition): CompiledSystem {
     pumps,
     gauges,
     leaks,
-    species: sys.species,
+    species,
     humidityRH: sys.humidityRH,
   };
 
@@ -440,6 +545,15 @@ export function translateAction(a: SimEventAction, c: CompiledSystem): SimEventA
     case 'heSpray':
     case 'setLeak':
       return { ...a, leakId: c.leakId[(a as { leakId: string }).leakId] ?? (a as { leakId: string }).leakId } as SimEventAction;
+    case 'bakeStart':
+    case 'bakeEnd': {
+      // UI-level targets are PART ids; the engine wants (post-merge) node ids
+      if (a.nodeIds === 'all') return a;
+      const nodeIds = a.nodeIds
+        .map((pid) => c.regionNode[`${pid}:0`] ?? c.portNode[`${pid}:0`] ?? pid)
+        .filter((v, i, arr) => arr.indexOf(v) === i);
+      return { ...a, nodeIds };
+    }
     default:
       return a;
   }

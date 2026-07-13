@@ -15,7 +15,8 @@ export type PartKind =
   | 'chamber' | 'tube' | 'flex' | 'bellows' | 'elbow' | 'tee' | 'cross'
   | 'adapter' | 'blank' | 'viewport' | 'feedthrough'
   | 'valve' | 'valve-butterfly' | 'valve-metering' | 'valve-vent' | 'valve-gas'
-  | 'pump' | 'gauge' | 'leak' | 'vleak' | 'leakdetector';
+  | 'pump' | 'gauge' | 'leak' | 'vleak' | 'leakdetector'
+  | 'payload' | 'coldtrap-meissner' | 'coldtrap-inline';
 
 export interface ParamDef {
   key: string;
@@ -427,6 +428,120 @@ add({
   defaults: { volume: 1, C: 1e-6, portFlange: 'KF16' },
   data: {},
   fidelity: 'Hidden gas pocket (e.g. unvented screw hole) bleeding through a tiny conductance — the classic slow-leak signature that He spraying cannot find.',
+});
+
+// ------------------------------------------------------ chamber payloads ----
+// Things you put INSIDE the chamber. Surface area drives outgassing;
+// volume displaces pumped gas (the chamber's free volume shrinks).
+
+const METAL_PAYLOAD_OPTIONS = [
+  { value: 'ss304', label: 'SS304/316' },
+  { value: 'ss-ep', label: 'SS electropolished' },
+  { value: 'al6061', label: 'Aluminum 6061' },
+  { value: 'copper-ofhc', label: 'Copper OFHC' },
+  { value: 'mild-steel', label: 'Mild steel' },
+];
+const POLYMER_PAYLOAD_OPTIONS = [
+  { value: 'ptfe', label: 'PTFE' },
+  { value: 'peek', label: 'PEEK' },
+  { value: 'kapton', label: 'Kapton' },
+  { value: 'nylon', label: 'Nylon / polyamide' },
+  { value: 'epoxy-fr4', label: 'Epoxy / FR4 board' },
+  { value: 'viton', label: 'Viton' },
+  { value: 'buna-n', label: 'Buna-N' },
+  { value: 'alumina', label: 'Alumina ceramic' },
+  { value: 'borosilicate', label: 'Borosilicate glass' },
+];
+const INSULATION_OPTIONS = [
+  { value: 'ptfe', label: 'PTFE' },
+  { value: 'kapton', label: 'Kapton' },
+  { value: 'peek', label: 'PEEK' },
+  { value: 'nylon', label: 'Nylon' },
+];
+
+add({
+  id: 'payload-metal', name: 'Metal mass (fixture, workpiece)', category: 'Chamber payloads', kind: 'payload',
+  w: 1, h: 1, ports: [{ x: 0.5, y: 1, flange: 'portFlange', dynamic: true }],
+  params: [
+    { key: 'material', label: 'Material', kind: 'select', options: METAL_PAYLOAD_OPTIONS },
+    { key: 'area', label: 'Surface area', kind: 'number', min: 1, max: 1e6, step: 10, unit: 'cm²' },
+    { key: 'volume', label: 'Volume', kind: 'number', min: 0, max: 1000, step: 0.1, unit: 'L' },
+    { key: 'baked', label: 'Pre-baked', kind: 'boolean' },
+    FLANGE_SELECT,
+  ],
+  defaults: { material: 'ss304', area: 600, volume: 1, baked: false, portFlange: 'KF25' },
+  data: { payload: 'direct' },
+  fidelity: 'Attach to any chamber port: the part lives INSIDE that volume. Area adds outgassing; volume is subtracted from the chamber (gas displacement) — a big block pumps down faster but outgasses longer.',
+});
+add({
+  id: 'payload-graphite', name: 'Graphite block', category: 'Chamber payloads', kind: 'payload',
+  w: 1, h: 1, ports: [{ x: 0.5, y: 1, flange: 'portFlange', dynamic: true }],
+  params: [
+    { key: 'W', label: 'Width', kind: 'number', min: 5, max: 2000, step: 5, unit: 'mm' },
+    { key: 'H', label: 'Height', kind: 'number', min: 5, max: 2000, step: 5, unit: 'mm' },
+    { key: 'D', label: 'Depth', kind: 'number', min: 5, max: 2000, step: 5, unit: 'mm' },
+    { key: 'baked', label: 'Pre-baked', kind: 'boolean' },
+    FLANGE_SELECT,
+  ],
+  defaults: { W: 100, H: 100, D: 100, baked: false, portFlange: 'KF25' },
+  data: { payload: 'graphite' },
+  fidelity: 'Porous graphite: the tabulated rate is per GEOMETRIC cm² with the internal surface folded in, decaying as t^-0.5 (bulk diffusion). Notorious water sponge — bake it.',
+});
+add({
+  id: 'payload-cable', name: 'Cable bundle', category: 'Chamber payloads', kind: 'payload',
+  w: 1, h: 1, ports: [{ x: 0.5, y: 1, flange: 'portFlange', dynamic: true }],
+  params: [
+    { key: 'length', label: 'Length', kind: 'number', min: 0.1, max: 500, step: 0.1, unit: 'm' },
+    { key: 'diameter', label: 'Bundle Ø', kind: 'number', min: 1, max: 100, step: 0.5, unit: 'mm' },
+    { key: 'insulation', label: 'Insulation', kind: 'select', options: INSULATION_OPTIONS },
+    FLANGE_SELECT,
+  ],
+  defaults: { length: 5, diameter: 10, insulation: 'ptfe', portFlange: 'KF25' },
+  data: { payload: 'cable' },
+  fidelity: 'Area = π·Ø·length of insulation surface; volume at 60% fill factor. Polymer insulation outgasses water with a t^-0.5 tail — the classic reason cabled chambers pump slowly.',
+});
+add({
+  id: 'payload-polymer', name: 'Polymer / ceramic part', category: 'Chamber payloads', kind: 'payload',
+  w: 1, h: 1, ports: [{ x: 0.5, y: 1, flange: 'portFlange', dynamic: true }],
+  params: [
+    { key: 'material', label: 'Material', kind: 'select', options: POLYMER_PAYLOAD_OPTIONS },
+    { key: 'area', label: 'Surface area', kind: 'number', min: 1, max: 1e6, step: 10, unit: 'cm²' },
+    { key: 'volume', label: 'Volume', kind: 'number', min: 0, max: 100, step: 0.05, unit: 'L' },
+    FLANGE_SELECT,
+  ],
+  defaults: { material: 'ptfe', area: 200, volume: 0.2, portFlange: 'KF25' },
+  data: { payload: 'direct' },
+  fidelity: 'Any tabulated polymer/ceramic: 3D-printed fixtures, PCBs, insulators, seals stock. Most are not bakeable — check the materials table.',
+});
+
+// ------------------------------------------------------------ cold traps ----
+
+add({
+  id: 'coldtrap-meissner', name: 'LN₂ cold wall (Meissner coil)', category: 'Cold traps', kind: 'coldtrap-meissner',
+  w: 2, h: 1, ports: [{ x: 1, y: 1, flange: 'portFlange', dynamic: true }],
+  params: [
+    { key: 'area', label: 'Cold area', kind: 'number', min: 10, max: 1e5, step: 10, unit: 'cm²' },
+    { key: 'on', label: 'LN₂ flowing', kind: 'boolean' },
+    FLANGE_SELECT,
+  ],
+  defaults: { area: 500, on: false, portFlange: 'KF40' },
+  data: {},
+  fidelity: 'An in-chamber 77 K surface pumps water at near the impingement rate (~10 L/s/cm², sticking included) and CO₂; it does NOT pump N₂/O₂/H₂/He (their 77 K vapor pressures are far too high). Capacity ≈ ice buildup; warm-up release is not modeled — regenerate while off (fidelity note).',
+});
+add({
+  id: 'coldtrap-inline', name: 'Right-angle LN₂ trap', category: 'Cold traps', kind: 'coldtrap-inline',
+  w: 2, h: 2,
+  ports: [
+    { x: 0, y: 1.5, flange: 'portFlange', dynamic: true },
+    { x: 1.5, y: 0, flange: 'portFlange', dynamic: true },
+  ],
+  params: [
+    { key: 'on', label: 'LN₂ filled', kind: 'boolean' },
+    FLANGE_SELECT,
+  ],
+  defaults: { on: false, portFlange: 'KF25' },
+  data: {},
+  fidelity: 'Foreline trap: conductance of an elbow ×0.4 (baffled path); while cold it pumps H₂O like a small cold surface — stops oil/water migration both ways. Warm-up release not modeled.',
 });
 
 add({

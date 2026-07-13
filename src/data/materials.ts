@@ -77,6 +77,24 @@ export const MATERIALS: Record<MaterialId, MaterialSpec> = {
     q1Unbaked: 1e-7, n: 0.7, speciesUnbaked: H2O_ONLY,
     q1Baked: null, speciesBaked: null, bakeable: false,
   },
+  // Rate is per GEOMETRIC cm² with the porous internal surface folded in —
+  // graphite adsorbs water throughout its open porosity and outgasses for
+  // ages (n = 0.5, bulk-diffusion signature). Bakeable, and worth it.
+  'graphite': {
+    id: 'graphite', name: 'Graphite (porous)',
+    q1Unbaked: 5e-7, n: 0.5, speciesUnbaked: { H2O: 0.85, H2: 0.15 },
+    q1Baked: 5e-10, speciesBaked: H2_ONLY, bakeable: true,
+  },
+  'nylon': {
+    id: 'nylon', name: 'Nylon / polyamide',
+    q1Unbaked: 2e-6, n: 0.5, speciesUnbaked: H2O_ONLY,
+    q1Baked: null, speciesBaked: null, bakeable: false,
+  },
+  'epoxy-fr4': {
+    id: 'epoxy-fr4', name: 'Epoxy / FR4 board',
+    q1Unbaked: 3e-7, n: 0.5, speciesUnbaked: H2O_ONLY,
+    q1Baked: null, speciesBaked: null, bakeable: false,
+  },
   // Constant-rate synthetic material for the validation suite (n = 0).
   'test-constant': {
     id: 'test-constant', name: 'Test (constant rate)',

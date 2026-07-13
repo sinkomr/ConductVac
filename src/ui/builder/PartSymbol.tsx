@@ -180,6 +180,38 @@ export const PartSymbol = memo(function PartSymbol({ inst, selected }: { inst: P
         </g>
       );
       break;
+    case 'payload':
+      body = (
+        <g>
+          <rect x={w / 2 - 10} y={h / 2 - 10} width={20} height={20} rx={3} fill={fill(inst.id, 0)} {...sel} />
+          <path d={`M${w / 2 - 8} ${h / 2 + 8} l16 -16 M${w / 2 - 8} ${h / 2} l8 -8 M${w / 2} ${h / 2 + 8} l8 -8`}
+            stroke="#9aa2b1" strokeWidth={1.2} />
+        </g>
+      );
+      break;
+    case 'coldtrap-meissner': {
+      const on = Boolean(inst.params.on);
+      body = (
+        <g>
+          <rect x={4} y={h / 2 - 9} width={w - 8} height={18} rx={9} fill={fill(inst.id, 0)} {...sel} />
+          <path d={`M10 ${h / 2} q6 -7 12 0 t12 0 t12 0`} fill="none"
+            stroke={on ? '#9fd7ff' : '#666c78'} strokeWidth={2.2} />
+        </g>
+      );
+      break;
+    }
+    case 'coldtrap-inline': {
+      const on = Boolean(inst.params.on);
+      body = (
+        <g>
+          <path d={`M0 ${h * 0.75} H ${w * 0.5} a10 10 0 0 0 10 -10 V 0`} fill="none" stroke={fill(inst.id, 1)} strokeWidth={14} />
+          <path d={`M0 ${h * 0.75} H ${w * 0.5} a10 10 0 0 0 10 -10 V 0`} fill="none" {...sel} opacity={0.9} />
+          <text x={w * 0.5} y={h * 0.75 + 5} textAnchor="middle" className="tiny"
+            fill={on ? '#9fd7ff' : '#666c78'}>❄</text>
+        </g>
+      );
+      break;
+    }
     default:
       // blank, viewport, feedthrough
       body = (
