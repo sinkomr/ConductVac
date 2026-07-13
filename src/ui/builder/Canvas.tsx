@@ -230,7 +230,7 @@ export function Canvas() {
                   const kind = def.kind;
                   if (kind.startsWith('valve') && kind !== 'valve-butterfly') {
                     st().setParam(inst.id, 'open', !inst.params.open);
-                  } else if (kind === 'pump') {
+                  } else if (kind === 'pump' || kind.startsWith('coldtrap')) {
                     st().setParam(inst.id, 'on', !inst.params.on);
                   } else if (kind === 'gauge') {
                     st().setParam(inst.id, 'enabled', !inst.params.enabled);

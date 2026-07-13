@@ -132,10 +132,22 @@ function Row({ row, partsOf, firstOf }: {
         </>
       );
       break;
-    case 'bakeStart':
+    case 'bakeStart': {
+      const target = a.nodeIds === 'all' ? 'all' : a.nodeIds[0] ?? 'all';
       detail = (
         <>
-          <span>all bakeable surfaces at</span>
+          <select
+            value={target}
+            onChange={(e) =>
+              updAction({ ...a, nodeIds: e.target.value === 'all' ? 'all' : [e.target.value] })
+            }
+          >
+            <option value="all">everything</option>
+            {partsOf(['chamber', 'payload', 'tube', 'flex', 'tee', 'cross']).map((p) => (
+              <option key={p.id} value={p.id}>{p.id}</option>
+            ))}
+          </select>
+          <span>at</span>
           <input
             type="number" value={a.temperatureC} min={30} max={450} step={10}
             onChange={(e) => updAction({ ...a, temperatureC: Number(e.target.value) })}
@@ -144,9 +156,27 @@ function Row({ row, partsOf, firstOf }: {
         </>
       );
       break;
-    case 'bakeEnd':
-      detail = <span>complete bake (baked surfaces switch to H2 rates)</span>;
+    }
+    case 'bakeEnd': {
+      const target = a.nodeIds === 'all' ? 'all' : a.nodeIds[0] ?? 'all';
+      detail = (
+        <>
+          <span>complete bake of</span>
+          <select
+            value={target}
+            onChange={(e) =>
+              updAction({ ...a, nodeIds: e.target.value === 'all' ? 'all' : [e.target.value] })
+            }
+          >
+            <option value="all">everything</option>
+            {partsOf(['chamber', 'payload', 'tube', 'flex', 'tee', 'cross']).map((p) => (
+              <option key={p.id} value={p.id}>{p.id}</option>
+            ))}
+          </select>
+        </>
+      );
       break;
+    }
     case 'heSpray':
       detail = (
         <>

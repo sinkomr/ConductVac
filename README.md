@@ -6,8 +6,10 @@ Build an arbitrary vacuum system from a parts library (chambers, tubes, fittings
 - **Gauges that lie realistically**: gas-species sensitivity, response lag, noise, Pirani flatline, cold-cathode strike failures, hot-cathode filament trips, X-ray limit.
 - **Strip charts** (log-p vs t or log-t) with a dashed *true pressure* overlay — watch your gauges deceive you.
 - **Gas-load flow view**: sources (leaks, outgassing, permeation) → network → pumps, in Torr·L/s. Answers "what limits my base pressure."
-- **Timeline event scripting** plus live interaction (double-click valves and pumps while running).
-- Multi-species (air, H₂O, H₂, He by default; data model is species-general), He spray on leaks, bakeout, gas ballast, capacity-limited capture pumps.
+- **Timeline event scripting** plus live interaction (double-click valves, pumps and cold traps while running).
+- Multi-species (air, H₂O, H₂, He by default; gas-admittance valves auto-activate their gas, e.g. N₂/Ar backfill), He spray on leaks, bakeout (global or per-part), gas ballast, capacity-limited capture pumps.
+- **Chamber payloads**: metal masses, porous graphite blocks, cable bundles (length × Ø × insulation), polymer/ceramic parts. Surface area drives outgassing; volume is subtracted from the chamber's free volume (gas displacement) — a big copper block pumps down faster but a graphite block outgasses for hours.
+- **LN₂ cold traps**: in-chamber Meissner coil (pumps H₂O near the impingement rate, CO₂ slower, nothing with a high 77 K vapor pressure) and a right-angle foreline trap (elbow ×0.4 conductance + cold H₂O pumping).
 
 Everything runs in a Web Worker; nothing leaves your machine. Save/load systems as JSON.
 
