@@ -41,6 +41,8 @@ export interface PartDef {
   id: string;
   name: string;
   category: string;
+  /** second hierarchy level in the palette (flange size, pump class, ...) */
+  sub?: string;
   kind: PartKind;
   w: number;
   h: number;
@@ -148,9 +150,10 @@ for (const f of FLANGES) {
   const fid = f.id;
   const d = boreCm(fid);
   const stdCats = f.standard === 'SWG' ? 'Gas lines' : 'Tubes & fittings';
+  const sub = f.name;
 
   add({
-    id: `nipple-${fid}`, name: `Nipple ${f.name}`, category: stdCats, kind: 'tube',
+    id: `nipple-${fid}`, name: `Nipple ${f.name}`, category: stdCats, sub, kind: 'tube',
     w: 3, h: 1,
     ports: [{ x: 0, y: 0.5, flange: fid }, { x: 3, y: 0.5, flange: fid }],
     params: [
@@ -162,7 +165,7 @@ for (const f of FLANGES) {
   });
 
   add({
-    id: `flex-${fid}`, name: `Flex hose ${f.name}`, category: stdCats, kind: 'flex',
+    id: `flex-${fid}`, name: `Flex hose ${f.name}`, category: stdCats, sub, kind: 'flex',
     w: 3, h: 1,
     ports: [{ x: 0, y: 0.5, flange: fid }, { x: 3, y: 0.5, flange: fid }],
     params: [
@@ -174,7 +177,7 @@ for (const f of FLANGES) {
   });
 
   add({
-    id: `bellows-${fid}`, name: `Bellows ${f.name}`, category: stdCats, kind: 'bellows',
+    id: `bellows-${fid}`, name: `Bellows ${f.name}`, category: stdCats, sub, kind: 'bellows',
     w: 2, h: 1,
     ports: [{ x: 0, y: 0.5, flange: fid }, { x: 2, y: 0.5, flange: fid }],
     params: [{ key: 'length', label: 'Length', kind: 'number', min: 40, max: 500, step: 10, unit: 'mm' }],
@@ -184,7 +187,7 @@ for (const f of FLANGES) {
   });
 
   add({
-    id: `elbow90-${fid}`, name: `90° elbow ${f.name}`, category: stdCats, kind: 'elbow',
+    id: `elbow90-${fid}`, name: `90° elbow ${f.name}`, category: stdCats, sub, kind: 'elbow',
     w: 2, h: 2,
     ports: [{ x: 0, y: 1.5, flange: fid }, { x: 1.5, y: 0, flange: fid }],
     params: [],
@@ -194,7 +197,7 @@ for (const f of FLANGES) {
   });
 
   add({
-    id: `elbow45-${fid}`, name: `45° elbow ${f.name}`, category: stdCats, kind: 'elbow',
+    id: `elbow45-${fid}`, name: `45° elbow ${f.name}`, category: stdCats, sub, kind: 'elbow',
     w: 2, h: 1,
     ports: [{ x: 0, y: 0.5, flange: fid }, { x: 2, y: 0.5, flange: fid }],
     params: [],
@@ -203,7 +206,7 @@ for (const f of FLANGES) {
   });
 
   add({
-    id: `tee-${fid}`, name: `Tee ${f.name}`, category: stdCats, kind: 'tee',
+    id: `tee-${fid}`, name: `Tee ${f.name}`, category: stdCats, sub, kind: 'tee',
     w: 3, h: 2,
     ports: [
       { x: 0, y: 0.75, flange: fid },
@@ -225,7 +228,7 @@ for (const f of FLANGES) {
     if (n >= 5) ports.push({ x: 3, y: 0, flange: fid });
     if (n >= 6) ports.push({ x: 0, y: 0, flange: fid });
     add({
-      id: `cross${n}-${fid}`, name: `${name} ${f.name}`, category: stdCats, kind: 'cross',
+      id: `cross${n}-${fid}`, name: `${name} ${f.name}`, category: stdCats, sub, kind: 'cross',
       w: 3, h: 2, ports,
       params: [],
       defaults: {},
@@ -234,19 +237,19 @@ for (const f of FLANGES) {
   }
 
   add({
-    id: `blank-${fid}`, name: `Blank flange ${f.name}`, category: 'Accessories', kind: 'blank',
+    id: `blank-${fid}`, name: `Blank flange ${f.name}`, category: 'Accessories', sub, kind: 'blank',
     w: 1, h: 1, ports: [{ x: 0, y: 0.5, flange: fid }],
     params: [], defaults: {}, data: { d },
   });
   add({
-    id: `viewport-${fid}`, name: `Viewport ${f.name}`, category: 'Accessories', kind: 'viewport',
+    id: `viewport-${fid}`, name: `Viewport ${f.name}`, category: 'Accessories', sub, kind: 'viewport',
     w: 1, h: 1, ports: [{ x: 0, y: 0.5, flange: fid }],
     params: [], defaults: {},
     data: { d, glassArea: Math.PI * (d / 2) ** 2 * 1.2 },
     fidelity: 'Viewport adds borosilicate glass outgassing area.',
   });
   add({
-    id: `feedthru-${fid}`, name: `Feedthrough ${f.name}`, category: 'Accessories', kind: 'feedthrough',
+    id: `feedthru-${fid}`, name: `Feedthrough ${f.name}`, category: 'Accessories', sub, kind: 'feedthrough',
     w: 1, h: 1, ports: [{ x: 0, y: 0.5, flange: fid }],
     params: [], defaults: {},
     data: { d, ceramicArea: 3 },
@@ -277,36 +280,37 @@ const valveSizes = FLANGES.filter((f) => f.standard !== 'SWG');
 for (const f of valveSizes) {
   const fid = f.id;
   const d = boreCm(fid);
+  const sub = f.name;
   const two: PortDef[] = [{ x: 0, y: 0.5, flange: fid }, { x: 2, y: 0.5, flange: fid }];
   const openParam: ParamDef = { key: 'open', label: 'Open', kind: 'boolean' };
 
   add({
-    id: `gate-${fid}`, name: `Gate valve ${f.name}`, category: 'Valves', kind: 'valve',
+    id: `gate-${fid}`, name: `Gate valve ${f.name}`, category: 'Valves', sub, kind: 'valve',
     w: 2, h: 1, ports: two,
     params: [openParam], defaults: { open: false },
     data: { d, lengthMm: f.boreMm * 0.8 + 30, bends: 0, actuateTime: 2 },
   });
   add({
-    id: `poppet-${fid}`, name: `Inline poppet ${f.name}`, category: 'Valves', kind: 'valve',
+    id: `poppet-${fid}`, name: `Inline poppet ${f.name}`, category: 'Valves', sub, kind: 'valve',
     w: 2, h: 1, ports: two,
     params: [openParam], defaults: { open: false },
     data: { d: d * 0.8, lengthMm: f.boreMm * 1.5 + 30, bends: 0.5, actuateTime: 0.5 },
   });
   add({
-    id: `angle-${fid}`, name: `Right-angle valve ${f.name}`, category: 'Valves', kind: 'valve',
+    id: `angle-${fid}`, name: `Right-angle valve ${f.name}`, category: 'Valves', sub, kind: 'valve',
     w: 2, h: 2,
     ports: [{ x: 0, y: 1.5, flange: fid }, { x: 1.5, y: 0, flange: fid }],
     params: [openParam], defaults: { open: false },
     data: { d, lengthMm: f.boreMm * 2 + 40, bends: 1, actuateTime: 1 },
   });
   add({
-    id: `ball-${fid}`, name: `Ball valve ${f.name}`, category: 'Valves', kind: 'valve',
+    id: `ball-${fid}`, name: `Ball valve ${f.name}`, category: 'Valves', sub, kind: 'valve',
     w: 2, h: 1, ports: two,
     params: [openParam], defaults: { open: false },
     data: { d, lengthMm: f.boreMm + 30, bends: 0, actuateTime: 0.5 },
   });
   add({
-    id: `butterfly-${fid}`, name: `Butterfly valve ${f.name}`, category: 'Valves', kind: 'valve-butterfly',
+    id: `butterfly-${fid}`, name: `Butterfly valve ${f.name}`, category: 'Valves', sub, kind: 'valve-butterfly',
     w: 2, h: 1, ports: two,
     params: [{ key: 'open', label: 'Opening', kind: 'number', min: 0, max: 100, step: 1, unit: '%' }],
     defaults: { open: 0 },
@@ -316,7 +320,7 @@ for (const f of valveSizes) {
 }
 
 add({
-  id: 'metering', name: 'Metering / leak valve', category: 'Valves', kind: 'valve-metering',
+  id: 'metering', name: 'Metering / leak valve', category: 'Valves', sub: 'Special', kind: 'valve-metering',
   w: 2, h: 1,
   ports: [{ x: 0, y: 0.5, flange: 'KF16' }, { x: 2, y: 0.5, flange: 'KF16' }],
   params: [
@@ -327,7 +331,7 @@ add({
   data: {},
 });
 add({
-  id: 'vent', name: 'Vent valve', category: 'Valves', kind: 'valve-vent',
+  id: 'vent', name: 'Vent valve', category: 'Valves', sub: 'Special', kind: 'valve-vent',
   w: 1, h: 1,
   ports: [{ x: 0, y: 0.5, flange: 'ventFlange', dynamic: true }],
   params: [
@@ -338,7 +342,7 @@ add({
   data: { d: 0.4, lengthMm: 50 },
 });
 add({
-  id: 'gasadmit', name: 'Gas admittance valve', category: 'Valves', kind: 'valve-gas',
+  id: 'gasadmit', name: 'Gas admittance valve', category: 'Valves', sub: 'Special', kind: 'valve-gas',
   w: 1, h: 1,
   ports: [{ x: 0, y: 0.5, flange: 'gasFlange', dynamic: true }],
   params: [
@@ -364,7 +368,7 @@ for (const p of PUMP_CATALOG) {
     params.push({ key: 'ballast', label: 'Gas ballast', kind: 'boolean' });
   }
   add({
-    id: `pump-${p.id}`, name: p.name, category: `Pumps: ${p.class}`, kind: 'pump',
+    id: `pump-${p.id}`, name: p.name, category: 'Pumps', sub: p.class, kind: 'pump',
     w: 3, h: 3, ports,
     params, defaults: { on: false, ballast: false },
     data: { pumpId: p.id, backed },

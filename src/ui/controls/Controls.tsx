@@ -37,6 +37,14 @@ export function Controls() {
         t = {snapshot ? formatSimTime(snapshot.t) : '—'}
         {snapshot?.steadyState && <em> (steady)</em>}
       </span>
+      <label className="values-toggle" title="paint live pressures on chambers, pumps and gauges">
+        <input
+          type="checkbox"
+          checked={useStore((s) => s.showValues)}
+          onChange={(e) => st().setShowValues(e.target.checked)}
+        />
+        pressure labels
+      </label>
       {stale && simLoaded && <span className="stale">system edited — Reset to apply</span>}
     </div>
   );

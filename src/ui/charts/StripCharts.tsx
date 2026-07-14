@@ -23,20 +23,22 @@ export function StripCharts() {
     const series: uPlot.Series[] = [{ label: 't [s]' }];
     gaugeIds.forEach((id, i) => {
       series.push({
-        label: id,
+        label: chartHistory.labels[i] ?? id,
         stroke: COLORS[i % COLORS.length],
         width: 1.6,
         spanGaps: false,
+        value: (_u, v) => (v == null ? '—' : v.toExponential(2)),
       });
     });
     if (truthOverlay) {
       gaugeIds.forEach((id, i) => {
         series.push({
-          label: `${id} (true)`,
+          label: `${id} (true p)`,
           stroke: COLORS[i % COLORS.length],
           width: 1,
           dash: [5, 5],
           spanGaps: false,
+          value: (_u, v) => (v == null ? '—' : v.toExponential(2)),
         });
       });
     }
@@ -63,14 +65,15 @@ export function StripCharts() {
     };
   }, [gaugeIds.join(','), truthOverlay, logTime]);
 
-  // (re)create plot when structure changes
+  // (re)create plot when structure changes; leave room for the legend row
   useEffect(() => {
     if (!hostRef.current) return;
     plotRef.current?.destroy();
     const el = hostRef.current;
-    const plot = new uPlot({ ...opts, width: el.clientWidth - 8, height: 210 }, [[], ...opts.series.slice(1).map(() => [])], el);
+    const chartH = () => Math.max(140, el.clientHeight - 34);
+    const plot = new uPlot({ ...opts, width: el.clientWidth - 8, height: chartH() }, [[], ...opts.series.slice(1).map(() => [])], el);
     plotRef.current = plot;
-    const ro = new ResizeObserver(() => plot.setSize({ width: el.clientWidth - 8, height: 210 }));
+    const ro = new ResizeObserver(() => plot.setSize({ width: el.clientWidth - 8, height: chartH() }));
     ro.observe(el);
     return () => {
       ro.disconnect();
