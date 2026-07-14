@@ -65,7 +65,10 @@ describe('showcase examples', () => {
   // ~9 min of solver time (27 h scripted bake + multi-day ion/NEG hold):
   // runs locally, skipped in CI where examples.test.ts already covers the
   // bake physics. Verified passing: chamber holds < 2e-9 H2-dominated.
-  it.skipIf(!!process.env.CI)('surface science: bake, then ion+NEG hold UHV with the gate closed', () => {
+  const inCI = Boolean(
+    (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.CI,
+  );
+  it.skipIf(inCI)('surface science: bake, then ion+NEG hold UHV with the gate closed', () => {
     const { sim, compiled } = simOf('uhvlab');
     const ch = compiled.regionNode['chamber:0'];
     const bakeEnd = 1800 + 24 * 3600;
