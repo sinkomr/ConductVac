@@ -329,23 +329,27 @@ add({
 add({
   id: 'vent', name: 'Vent valve', category: 'Valves', kind: 'valve-vent',
   w: 1, h: 1,
-  ports: [{ x: 0, y: 0.5, flange: 'KF16' }],
-  params: [{ key: 'open', label: 'Open', kind: 'boolean' }],
-  defaults: { open: false },
+  ports: [{ x: 0, y: 0.5, flange: 'ventFlange', dynamic: true }],
+  params: [
+    { key: 'open', label: 'Open', kind: 'boolean' },
+    { key: 'ventFlange', label: 'Flange', kind: 'select', options: FLANGES.map((f) => ({ value: f.id, label: f.name })) },
+  ],
+  defaults: { open: false, ventFlange: 'KF16' },
   data: { d: 0.4, lengthMm: 50 },
 });
 add({
   id: 'gasadmit', name: 'Gas admittance valve', category: 'Valves', kind: 'valve-gas',
   w: 1, h: 1,
-  ports: [{ x: 0, y: 0.5, flange: 'KF16' }],
+  ports: [{ x: 0, y: 0.5, flange: 'gasFlange', dynamic: true }],
   params: [
     { key: 'gas', label: 'Gas', kind: 'select', options: [
       { value: 'He', label: 'Helium' }, { value: 'Ar', label: 'Argon' }, { value: 'N2', label: 'N2 (dry)' },
     ] },
     { key: 'C', label: 'Conductance', kind: 'log', min: 1e-9, max: 1e-1, unit: 'L/s' },
     { key: 'open', label: 'Open', kind: 'boolean' },
+    { key: 'gasFlange', label: 'Flange', kind: 'select', options: FLANGES.map((f) => ({ value: f.id, label: f.name })) },
   ],
-  defaults: { gas: 'N2', C: 1e-3, open: false },
+  defaults: { gas: 'N2', C: 1e-3, open: false, gasFlange: 'KF16' },
   data: {},
 });
 
