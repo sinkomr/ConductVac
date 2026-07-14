@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import type { PartInstance } from '../../types';
 import { PART_BY_ID } from '../../data/fittings';
-import { nodePressures, useStore } from '../../store';
+import { formatPressure, nodePressures, useStore } from '../../store';
 import { pressureColor } from '../colormap/colormap';
 
 /**
@@ -223,9 +223,29 @@ export const PartSymbol = memo(function PartSymbol({ inst, selected }: { inst: P
       );
   }
 
+  // live numeric pressure labels (toggle in the controls bar): chambers,
+  // pumps and traps show TRUE pressure; gauges show their READING — putting
+  // the instrument's lie right next to the truth
+  const showValues = useStore.getState().showValues;
+  let valueText: string | null = null;
+  if (showValues) {
+    const VALUE_KINDS = ['chamber', 'pump', 'leakdetector', 'coldtrap-meissner', 'tee', 'cross', 'vleak'];
+    if (def.kind === 'gauge') {
+      const snap = useStore.getState().snapshot;
+      const r = snap?.gauges.find((g) => g.id === inst.id);
+      if (r) valueText = Number.isFinite(r.value) ? formatPressure(r.value, useStore.getState().unit) : r.status || 'off';
+    } else if (VALUE_KINDS.includes(def.kind)) {
+      const compiled = useStore.getState().compiled;
+      const node = compiled?.regionNode[`${inst.id}:0`];
+      const p = node ? nodePressures.get(node) : undefined;
+      if (p !== undefined) valueText = formatPressure(p, useStore.getState().unit);
+    }
+  }
+
   // counter-rotate text so labels stay upright regardless of part rotation
   const unrot = `rotate(${-inst.rot} ${w / 2} ${-10})`;
   const unrotLen = `rotate(${-inst.rot} ${w / 2} ${h / 2 + 16})`;
+  const unrotVal = `rotate(${-inst.rot} ${w / 2} ${h + 8})`;
   return (
     <g>
       {body}
@@ -233,6 +253,11 @@ export const PartSymbol = memo(function PartSymbol({ inst, selected }: { inst: P
       {(def.kind === 'tube' || def.kind === 'flex' || def.kind === 'bellows') && (
         <text x={w / 2} y={h / 2 + 20} textAnchor="middle" className="tiny" transform={unrotLen}>
           {Number(inst.params.length ?? 100)} mm
+        </text>
+      )}
+      {valueText !== null && (
+        <text x={w / 2} y={h + 12} textAnchor="middle" className="pvalue" transform={unrotVal}>
+          {valueText}
         </text>
       )}
     </g>

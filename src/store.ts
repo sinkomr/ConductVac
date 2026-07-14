@@ -17,6 +17,8 @@ import EngineWorker from './engine/worker?worker';
  */
 export interface ChartHistory {
   gaugeIds: string[];
+  /** legend labels: "part-id · gauge type" */
+  labels: string[];
   t: number[];
   /** per gauge: reading series (NaN = no output) */
   values: number[][];
@@ -24,10 +26,11 @@ export interface ChartHistory {
   truths: number[][];
 }
 
-export const chartHistory: ChartHistory = { gaugeIds: [], t: [], values: [], truths: [] };
+export const chartHistory: ChartHistory = { gaugeIds: [], labels: [], t: [], values: [], truths: [] };
 
-function resetChartHistory(gaugeIds: string[]) {
+function resetChartHistory(gaugeIds: string[], labels: string[]) {
   chartHistory.gaugeIds = gaugeIds;
+  chartHistory.labels = labels;
   chartHistory.t = [];
   chartHistory.values = gaugeIds.map(() => []);
   chartHistory.truths = gaugeIds.map(() => []);
@@ -122,6 +125,8 @@ interface AppState {
   unit: PressureUnit;
   truthOverlay: boolean;
   logTime: boolean;
+  /** paint live numeric pressures on chambers/pumps/gauges in the schematic */
+  showValues: boolean;
   bottomTab: 'charts' | 'flow' | 'species' | 'script' | 'log';
 
   // builder actions
@@ -161,6 +166,7 @@ interface AppState {
   setUnit(u: PressureUnit): void;
   setTruthOverlay(v: boolean): void;
   setLogTime(v: boolean): void;
+  setShowValues(v: boolean): void;
   setBottomTab(t: AppState['bottomTab']): void;
 }
 
@@ -185,10 +191,16 @@ function ensureWorker(set: (p: Partial<AppState>) => void, get: () => AppState):
   worker.onmessage = (ev: MessageEvent<WorkerMsg>) => {
     const msg = ev.data;
     switch (msg.type) {
-      case 'loaded':
-        resetChartHistory(msg.gaugeIds);
+      case 'loaded': {
+        const engGauges = get().compiled?.engine.gauges ?? [];
+        const labels = msg.gaugeIds.map((id) => {
+          const g = engGauges.find((x) => x.id === id);
+          return g ? `${id} · ${g.type}` : id;
+        });
+        resetChartHistory(msg.gaugeIds, labels);
         set({ simLoaded: true, eventLog: [], chartTick: 0, flows: null });
         break;
+      }
       case 'snapshot': {
         for (const n of msg.snap.nodes) {
           nodePressures.set(n.id, n.pTotal);
@@ -264,6 +276,7 @@ export const useStore = create<AppState>((set, get) => ({
   unit: 'Torr',
   truthOverlay: false,
   logTime: false,
+  showValues: false,
   bottomTab: 'charts',
 
   setPlacing: (defId) => set({ placing: defId, connectFrom: null }),
@@ -497,5 +510,6 @@ export const useStore = create<AppState>((set, get) => ({
   setUnit: (u) => set({ unit: u }),
   setTruthOverlay: (v) => set({ truthOverlay: v }),
   setLogTime: (v) => set({ logTime: v }),
+  setShowValues: (v) => set({ showValues: v }),
   setBottomTab: (t) => set({ bottomTab: t }),
 }));

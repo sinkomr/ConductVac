@@ -59,6 +59,15 @@ body {
   padding: 6px 2px; cursor: pointer; font-weight: 600; font-size: 12.5px;
 }
 .cat-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
+.sub-group { margin-left: 6px; }
+.sub-header {
+  width: 100%; text-align: left; background: none; border: none; color: #8f97a8;
+  padding: 4px 2px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 4px;
+}
+.sub-header:hover { color: #c8cdd8; }
+.sub-count { margin-left: auto; color: #5a6170; font-size: 10.5px; }
+.sub-list { margin-left: 10px; border-left: 1px solid #2c3038; padding-left: 6px; }
+.pvalue { fill: #9fd7ff; font-size: 10.5px; font-variant-numeric: tabular-nums; user-select: none; }
 .part-btn {
   text-align: left; background: #20242c; border: 1px solid transparent; color: #c8cdd8;
   padding: 4px 8px; border-radius: 5px; cursor: pointer; font-size: 12px;
@@ -135,7 +144,19 @@ body {
 .charts { display: flex; flex-direction: column; height: 100%; }
 .chart-toolbar { display: flex; gap: 14px; align-items: center; margin-bottom: 4px; color: #9aa2b1; }
 .chart-host { flex: 1; min-height: 0; }
-.u-legend { color: #9aa2b1 !important; font-size: 11px !important; }
+
+/* uPlot legend: dark, compact, single row under the chart */
+.u-legend {
+  color: #c8cdd8 !important;
+  font-size: 11.5px !important;
+  text-align: left !important;
+  padding: 2px 0 0 40px !important;
+}
+.u-legend .u-series > * { padding: 1px 6px 1px 0 !important; }
+.u-legend .u-marker { width: 12px !important; height: 4px !important; margin-right: 4px; }
+.u-legend .u-value { color: #9fd7ff !important; font-variant-numeric: tabular-nums; }
+.u-legend .u-label { color: #c8cdd8 !important; }
+.u-legend tr.u-off .u-label, .u-legend tr.u-off .u-value { color: #5a6170 !important; }
 
 .event-log { font-size: 12.5px; }
 .log-entry { display: flex; gap: 10px; padding: 2px 0; }
@@ -162,3 +183,5 @@ body {
 .species-bar-bg { flex: 1; height: 14px; background: #14161b; border-radius: 4px; overflow: hidden; }
 .species-bar { height: 100%; border-radius: 4px; }
 .species-val { width: 110px; text-align: right; font-variant-numeric: tabular-nums; }
+
+.values-toggle { display: flex; gap: 5px; align-items: center; color: #9aa2b1; margin-left: 6px; }
