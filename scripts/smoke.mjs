@@ -24,9 +24,14 @@ page.on('pageerror', (e) => errors.push(String(e)));
 await page.goto('http://localhost:4173/');
 await page.waitForTimeout(800);
 
-// load example 2 from the dropdown
+// cycle every bundled example to catch load-time errors
+for (const ex of ['starter', 'coater', 'uhvlab', 'ex1', 'ex2', 'ex3', 'ex4', 'ex6']) {
+  await page.selectOption('header select', ex);
+  await page.waitForTimeout(600);
+  console.log('loaded example:', ex, '— errors so far:', errors.length);
+}
 await page.selectOption('header select', 'ex2');
-await page.waitForTimeout(800);
+await page.waitForTimeout(600);
 
 // run
 await page.click('button:has-text("Run")');
