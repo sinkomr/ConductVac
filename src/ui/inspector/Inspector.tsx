@@ -30,7 +30,8 @@ export function Inspector() {
   const species = useStore.getState().snapshot?.species;
 
   return (
-    <aside className="inspector">
+    <aside className="inspector open">
+      <button className="btn mobile-only drawer-close" onClick={() => useStore.getState().select(null)}>✕ close</button>
       <h3>{def.name}</h3>
       <div className="prop-row"><span>id</span><b>{inst.id}</b></div>
       {p !== undefined && (

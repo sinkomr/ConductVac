@@ -16,6 +16,8 @@ const CATEGORY_ORDER = [
 export function Palette() {
   const placing = useStore((s) => s.placing);
   const setPlacing = useStore((s) => s.setPlacing);
+  const paletteOpen = useStore((s) => s.paletteOpen);
+  const setPaletteOpen = useStore((s) => s.setPaletteOpen);
   const [search, setSearch] = useState('');
   const [openCat, setOpenCat] = useState<string | null>('Chambers');
   const [openSub, setOpenSub] = useState<string | null>(null);
@@ -63,7 +65,8 @@ export function Palette() {
   );
 
   return (
-    <aside className="palette">
+    <aside className={`palette ${paletteOpen ? 'open' : ''}`}>
+      <button className="btn mobile-only drawer-close" onClick={() => setPaletteOpen(false)}>✕ close</button>
       <input
         className="search"
         placeholder="Search parts…"

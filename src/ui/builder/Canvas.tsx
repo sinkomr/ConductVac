@@ -43,6 +43,38 @@ export function Canvas() {
   const [mouse, setMouse] = useState({ x: 0, y: 0 });
   const [hover, setHover] = useState<Hover | null>(null);
   useStore((s) => s.chartTick); // repaint tooltip pressures
+  const fitTick = useStore((s) => s.fitTick);
+
+  // touch pinch-zoom state: active pointers + gesture baseline
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<null | { d0: number; scale0: number; wx: number; wy: number }>(null);
+
+  // fit the whole system into view (on load, on the Fit button, on mount)
+  useEffect(() => {
+    const parts = useStore.getState().system.parts;
+    if (!svgRef.current || parts.length === 0) return;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of parts) {
+      const def = PART_BY_ID[p.def];
+      if (!def) continue;
+      minX = Math.min(minX, p.x - 0.5);
+      minY = Math.min(minY, p.y - 1);
+      maxX = Math.max(maxX, p.x + def.w + 0.5);
+      maxY = Math.max(maxY, p.y + def.h + 1);
+    }
+    if (!Number.isFinite(minX)) return;
+    const bw = (maxX - minX) * CELL;
+    const bh = (maxY - minY) * CELL;
+    const rect = svgRef.current.getBoundingClientRect();
+    const margin = 30;
+    const scale = Math.max(0.25, Math.min(1.25,
+      Math.min((rect.width - 2 * margin) / bw, (rect.height - 2 * margin) / bh)));
+    setView({
+      scale,
+      x: minX * CELL + bw / 2 - rect.width / (2 * scale),
+      y: minY * CELL + bh / 2 - rect.height / (2 * scale),
+    });
+  }, [fitTick]);
 
   const toCanvas = useCallback(
     (clientX: number, clientY: number) => {
@@ -92,6 +124,7 @@ export function Canvas() {
   };
 
   const onBgDown = (e: React.PointerEvent) => {
+    if (pointersRef.current.size >= 2) return; // pinch in progress
     if (placing) {
       const pt = toCanvas(e.clientX, e.clientY);
       const def = PART_BY_ID[placing];
@@ -104,6 +137,31 @@ export function Canvas() {
   };
 
   const onMove = (e: React.PointerEvent) => {
+    // two-finger pinch: zoom around the gesture's anchor point
+    const ptr = pointersRef.current;
+    if (ptr.has(e.pointerId)) ptr.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ptr.size === 2) {
+      const [a, b] = [...ptr.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      const rect = svgRef.current!.getBoundingClientRect();
+      const mx = (a.x + b.x) / 2 - rect.left;
+      const my = (a.y + b.y) / 2 - rect.top;
+      if (!pinchRef.current) {
+        pinchRef.current = {
+          d0: d,
+          scale0: view.scale,
+          wx: mx / view.scale + view.x,
+          wy: my / view.scale + view.y,
+        };
+        setPan(null);
+        setDrag(null);
+      } else {
+        const g = pinchRef.current;
+        const scale = Math.max(0.25, Math.min(3, g.scale0 * (d / g.d0)));
+        setView({ scale, x: g.wx - mx / scale, y: g.wy - my / scale });
+      }
+      return;
+    }
     const pt = toCanvas(e.clientX, e.clientY);
     setMouse(pt);
     if (pan) {
@@ -168,6 +226,17 @@ export function Canvas() {
         ref={svgRef}
         className="canvas"
         onWheel={onWheel}
+        onPointerDownCapture={(e) => {
+          if (e.pointerType === 'touch') pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        }}
+        onPointerUpCapture={(e) => {
+          pointersRef.current.delete(e.pointerId);
+          if (pointersRef.current.size < 2) pinchRef.current = null;
+        }}
+        onPointerCancelCapture={(e) => {
+          pointersRef.current.delete(e.pointerId);
+          if (pointersRef.current.size < 2) pinchRef.current = null;
+        }}
         onPointerDown={onBgDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
