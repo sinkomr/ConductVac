@@ -102,6 +102,9 @@ export function App() {
         <Palette />
         <Canvas />
         <Inspector />
+        {useStore((s2) => s2.paletteOpen) && (
+          <div className="drawer-backdrop" onClick={() => st().setPaletteOpen(false)} />
+        )}
       </main>
       <footer className="bottom">
         <div className="tabbar">

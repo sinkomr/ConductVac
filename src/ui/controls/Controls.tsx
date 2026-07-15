@@ -13,6 +13,13 @@ export function Controls() {
 
   return (
     <div className="controls">
+      <button
+        className="btn mobile-only"
+        onClick={() => st().setPaletteOpen(!useStore.getState().paletteOpen)}
+        title="parts palette"
+      >
+        ☰ Parts
+      </button>
       <button className="btn primary" onClick={() => (running ? st().pauseSim() : st().runSim())} disabled={ffActive}>
         {running ? '❚❚ Pause' : '▶ Run'}
       </button>
@@ -32,6 +39,9 @@ export function Controls() {
       </span>
       <button className="btn" onClick={() => st().fastForward()} disabled={ffActive || !simLoaded && stale}>
         {ffActive ? '⏩ running…' : '⏩ to steady state'}
+      </button>
+      <button className="btn" onClick={() => st().requestFit()} title="fit the system into view">
+        ⤢ Fit
       </button>
       <span className="sim-time">
         t = {snapshot ? formatSimTime(snapshot.t) : '—'}

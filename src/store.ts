@@ -127,6 +127,10 @@ interface AppState {
   logTime: boolean;
   /** paint live numeric pressures on chambers/pumps/gauges in the schematic */
   showValues: boolean;
+  /** mobile: parts palette drawer visibility */
+  paletteOpen: boolean;
+  /** bump to ask the canvas to fit the system into view */
+  fitTick: number;
   bottomTab: 'charts' | 'flow' | 'species' | 'script' | 'log';
 
   // builder actions
@@ -167,6 +171,8 @@ interface AppState {
   setTruthOverlay(v: boolean): void;
   setLogTime(v: boolean): void;
   setShowValues(v: boolean): void;
+  setPaletteOpen(v: boolean): void;
+  requestFit(): void;
   setBottomTab(t: AppState['bottomTab']): void;
 }
 
@@ -277,9 +283,11 @@ export const useStore = create<AppState>((set, get) => ({
   truthOverlay: false,
   logTime: false,
   showValues: false,
+  paletteOpen: false,
+  fitTick: 0,
   bottomTab: 'charts',
 
-  setPlacing: (defId) => set({ placing: defId, connectFrom: null }),
+  setPlacing: (defId) => set({ placing: defId, connectFrom: null, paletteOpen: false }),
 
   addPart: (defId, x, y) => {
     const def = PART_BY_ID[defId];
@@ -421,7 +429,10 @@ export const useStore = create<AppState>((set, get) => ({
   loadSystem: (sys) => {
     absorbIds(sys);
     pushUndo(get().system);
-    set({ system: sys, selection: null, stale: true, snapshot: null, simLoaded: false, eventLog: [] });
+    set({
+      system: sys, selection: null, stale: true, snapshot: null,
+      simLoaded: false, eventLog: [], fitTick: get().fitTick + 1,
+    });
     get().loadSim(false);
   },
 
@@ -511,5 +522,7 @@ export const useStore = create<AppState>((set, get) => ({
   setTruthOverlay: (v) => set({ truthOverlay: v }),
   setLogTime: (v) => set({ logTime: v }),
   setShowValues: (v) => set({ showValues: v }),
+  setPaletteOpen: (v) => set({ paletteOpen: v }),
+  requestFit: () => set({ fitTick: get().fitTick + 1 }),
   setBottomTab: (t) => set({ bottomTab: t }),
 }));
