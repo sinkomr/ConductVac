@@ -104,6 +104,47 @@ describe('bundled examples', () => {
     expect(pH2).toBeGreaterThan(0.5 * p);
   }, 120000);
 
+  it('example 5: the long KF25 hose starves the big chamber (conductance-limited)', () => {
+    const { sim, compiled } = simOf('ex5');
+    const big = chamberNode(compiled, 'bigchamber');
+    const man = chamberNode(compiled, 'manifold');
+
+    // roughing works viscously: whole system below ~1 Torr before crossover
+    sim.advance(590);
+    const roughed = sim.pressureOf(big);
+    expect(roughed).toBeLessThan(1);
+    expect(roughed).toBeGreaterThan(0.01);
+
+    // 10 min after the gate opens: the manifold plunges to the turbo floor
+    // while the chamber drains through ~0.4 L/s of molecular hose conductance
+    sim.advance(1200 - sim.t);
+    const pMan = sim.pressureOf(man);
+    const pBig = sim.pressureOf(big);
+    expect(pMan).toBeLessThan(1e-3);
+    expect(pBig / pMan).toBeGreaterThan(10);
+
+    // visible gradient along the hose (colormap criterion)
+    const keys = Object.keys(compiled.regionNode).filter((k) => k.startsWith('longhose:'));
+    const pFirst = sim.pressureOf(compiled.regionNode['longhose:0']);
+    const pLast = sim.pressureOf(compiled.regionNode[`longhose:${keys.length - 1}`]);
+    expect(keys.length).toBeGreaterThan(15); // 2 m auto-segments finely
+    expect(pFirst / pLast).toBeGreaterThan(3);
+
+    // settled: chamber pinned ~2 decades above the manifold by the
+    // constriction; the chamber Pirani still reads it (in range), while the
+    // manifold full-range shows the turbo floor
+    sim.advance(3600 - sim.t);
+    const pMan2 = sim.pressureOf(man);
+    const pBig2 = sim.pressureOf(big);
+    expect(pBig2 / pMan2).toBeGreaterThan(30);
+    expect(pBig2).toBeGreaterThan(1e-4);
+    expect(pBig2).toBeLessThan(1e-2);
+    const pirani = sim.net.gauges.find((g) => g.spec.type === 'pirani')!;
+    const rp = pirani.reading(sim.partialsAt(pirani.nodeIdx));
+    expect(rp.value).toBeGreaterThan(pBig2 / 3);
+    expect(rp.value).toBeLessThan(pBig2 * 3);
+  });
+
   it('example 6: virtual leak produces the slow-bleed signature', () => {
     const { sim } = simOf('ex6');
     // pocket τ = V/C = 1 cm³ / 1e-6 L/s ≈ 1000 s: after 10 min it is still

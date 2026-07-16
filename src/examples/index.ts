@@ -155,6 +155,59 @@ function example4(): SystemDefinition {
   return b.build('Example 4 — UHV bakeout: turbo + ion + NEG → 1e-10 Torr');
 }
 
+// ---- 5. Constriction: a long thin hose starves a big chamber --------------
+// 100 L chamber connected to its pumping manifold by 2 m of KF25 flex hose.
+// Viscously the hose is plenty; in molecular flow its conductance collapses
+// to ~0.4 L/s, so the manifold reads the turbo's floor while the chamber
+// hangs two decades higher — read the Pirani on the chamber vs the
+// full-range on the manifold, and watch the gradient along the hose.
+
+function example5(): SystemDefinition {
+  const b = new B();
+  b.part('chamber-cyl', 'bigchamber', 3, 2, { D: 400, L: 800, portFlange: 'KF25', material: 'ss304' });
+  b.part('gauge-pirani', 'pirani', 4.5, 0, { portFlange: 'KF25' }, 180);
+  b.part('flex-KF25', 'longhose', 10, 3, { length: 2000 });
+  b.part('chamber-cell', 'manifold', 15, 2.5, { D: 150, L: 250, portFlange: 'KF25' });
+  b.part('gauge-fullrange', 'frg', 16, 0.5, { portFlange: 'KF25' }, 180);
+
+  // high-vac stack below the manifold
+  b.part('adapter', 'adap-gate', 16, 5.2, { flangeA: 'KF25', flangeB: 'CF63' }, 90);
+  b.part('gate-CF63', 'gate', 15.5, 7, {}, 90);
+  b.part('pump-turbo-80', 'turbo', 15, 9.5);
+
+  // roughing branch (smaller valve) + shared scroll backing
+  b.part('adapter', 'adap-rough', 19, 3.2, { flangeA: 'KF25', flangeB: 'KF16' });
+  b.part('angle-KF16', 'roughvalve', 21.5, 2.7);
+  b.part('flex-KF16', 'roughhose', 23.5, 3.4, { length: 600 });
+  b.part('tee-KF16', 'tee', 21.5, 8.75);
+  b.part('flex-KF16', 'backhose', 19, 9.5, { length: 400 });
+  b.part('adapter', 'adap-scroll', 24, 9.3, { flangeA: 'KF16', flangeB: 'KF25' });
+  b.part('pump-scroll-10', 'scroll', 25.5, 10.5);
+
+  b.join('bigchamber', 0, 'pirani', 0);
+  b.join('bigchamber', 1, 'longhose', 0);
+  b.join('longhose', 1, 'manifold', 3);
+  b.join('manifold', 0, 'frg', 0);
+  b.join('manifold', 2, 'adap-gate', 0);
+  b.join('adap-gate', 1, 'gate', 1);
+  b.join('gate', 0, 'turbo', 0);
+  b.join('manifold', 1, 'adap-rough', 0);
+  b.join('adap-rough', 1, 'roughvalve', 1);
+  b.join('roughvalve', 0, 'roughhose', 0);
+  b.join('roughhose', 1, 'tee', 0);
+  b.join('turbo', 1, 'backhose', 0);
+  b.join('backhose', 1, 'tee', 1);
+  b.join('tee', 2, 'adap-scroll', 0);
+  b.join('adap-scroll', 1, 'scroll', 0);
+
+  b.at(0, { type: 'pump', pumpId: 'scroll', on: true });
+  b.at(2, { type: 'valve', edgeId: 'roughvalve', open: 1 });
+  b.at(360, { type: 'valve', edgeId: 'roughvalve', open: 0 });
+  b.at(365, { type: 'pump', pumpId: 'turbo', on: true });
+  b.at(600, { type: 'valve', edgeId: 'gate', open: 1 });
+  return b.build('Example 5 — constriction: a long KF25 hose starves a 100 L chamber');
+}
+
 // ---- 6. Virtual-leak demonstration chamber --------------------------------
 
 function example6(): SystemDefinition {
@@ -333,5 +386,6 @@ export const EXAMPLES: { id: string; name: string; system: SystemDefinition }[] 
   { id: 'ex2', name: '2 · Scroll + turbo crossover', system: example2() },
   { id: 'ex3', name: '3 · Bell jar + diffusion (permeation floor)', system: example3() },
   { id: 'ex4', name: '4 · UHV bakeout → 1e-10', system: example4() },
+  { id: 'ex5', name: '5 · Constriction (conductance-limited)', system: example5() },
   { id: 'ex6', name: '6 · Virtual leak demo', system: example6() },
 ];
