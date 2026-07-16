@@ -785,6 +785,9 @@ export class Sim {
         partials: Array.from({ length: nS }, (_, g) => this.p[g * nN + i]),
       })),
       gauges: net.gauges.map((gg) => gg.reading(this.partialsAt(gg.nodeIdx))),
+      valves: net.edges
+        .filter((e) => !e.pumpInternal && e.leakIdx === undefined)
+        .map((e) => ({ id: e.id, open: e.open })),
       pumps: net.pumps.map((pm) => {
         const heIdx = net.species.indexOf('He');
         const qHelium = heIdx >= 0

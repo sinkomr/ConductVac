@@ -353,6 +353,8 @@ export interface SimSnapshot {
   species: GasId[];
   nodes: NodeSnapshot[];
   gauges: GaugeReading[];
+  /** live valve opening fractions (scripted changes repaint the schematic) */
+  valves: { id: string; open: number }[];
   pumps: {
     id: string;
     on: boolean;

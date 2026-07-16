@@ -20,18 +20,39 @@ function fill(instId: string, region: number): string {
   return p !== undefined ? pressureColor(p) : '#3a3f4a';
 }
 
+/**
+ * Live engine state, so scripted/live actions repaint the symbol (a gate
+ * opened by the run script must not keep its red closed-X). Falls back to
+ * the editor params when unmapped or before the first snapshot.
+ */
+function liveValveOpen(instId: string): number | undefined {
+  const st = useStore.getState();
+  const edgeId = st.compiled?.valveEdge[instId];
+  if (!edgeId) return undefined;
+  return st.snapshot?.valves.find((v) => v.id === edgeId)?.open;
+}
+
+function livePumpOn(instId: string, kind: string): boolean | undefined {
+  const st = useStore.getState();
+  const pid = kind === 'leakdetector' ? `${instId}.t` : instId;
+  return st.snapshot?.pumps.find((p) => p.id === pid)?.on;
+}
+
 const STROKE = '#c8cdd8';
 
 export const PartSymbol = memo(function PartSymbol({ inst, selected }: { inst: PartInstance; selected: boolean }) {
   // subscribe to snapshot updates so colors repaint
   useStore((s) => s.chartTick);
   useStore((s) => s.compiled);
+  const showValues = useStore((s) => s.showValues);
+  const unit = useStore((s) => s.unit);
   const def = PART_BY_ID[inst.def];
   if (!def) return null;
   const w = def.w * CELL;
   const h = def.h * CELL;
   const sel = selected ? { stroke: '#6ab0ff', strokeWidth: 2.5 } : { stroke: STROKE, strokeWidth: 1.4 };
-  const label = (inst.params.on !== undefined && def.kind === 'pump' && !inst.params.on) ? `${inst.id} (off)` : inst.id;
+  const pumpOn = def.kind === 'pump' ? (livePumpOn(inst.id, def.kind) ?? Boolean(inst.params.on)) : true;
+  const label = (def.kind === 'pump' && inst.params.on !== undefined && !pumpOn) ? `${inst.id} (off)` : inst.id;
 
   let body: JSX.Element;
   switch (def.kind) {
@@ -105,7 +126,9 @@ export const PartSymbol = memo(function PartSymbol({ inst, selected }: { inst: P
     case 'valve':
     case 'valve-butterfly':
     case 'valve-metering': {
-      const open = def.kind === 'valve-butterfly' ? Number(inst.params.open ?? 0) > 2 : Boolean(inst.params.open);
+      const frac = liveValveOpen(inst.id) ??
+        (def.kind === 'valve-butterfly' ? Number(inst.params.open ?? 0) / 100 : (inst.params.open ? 1 : 0));
+      const open = frac > 0.02;
       const cx = w / 2;
       const cy = def.h === 2 ? h * 0.75 : h / 2;
       body = (
@@ -114,7 +137,7 @@ export const PartSymbol = memo(function PartSymbol({ inst, selected }: { inst: P
           <path d={`M${cx + 14} ${cy - 9} L${cx} ${cy} L${cx + 14} ${cy + 9} Z`} fill={fill(inst.id, 1)} {...sel} />
           {!open && <line x1={cx} y1={cy - 12} x2={cx} y2={cy + 12} stroke="#ff7070" strokeWidth={3} />}
           {def.kind === 'valve-butterfly' && (
-            <text x={cx} y={cy - 14} textAnchor="middle" className="tiny">{Number(inst.params.open ?? 0)}%</text>
+            <text x={cx} y={cy - 14} textAnchor="middle" className="tiny">{Math.round(frac * 100)}%</text>
           )}
         </g>
       );
@@ -122,7 +145,7 @@ export const PartSymbol = memo(function PartSymbol({ inst, selected }: { inst: P
     }
     case 'valve-vent':
     case 'valve-gas': {
-      const open = Boolean(inst.params.open);
+      const open = (liveValveOpen(inst.id) ?? (inst.params.open ? 1 : 0)) > 0.02;
       body = (
         <g>
           <circle cx={w / 2} cy={h / 2} r={9} fill={fill(inst.id, 0)} {...sel} />
@@ -135,12 +158,11 @@ export const PartSymbol = memo(function PartSymbol({ inst, selected }: { inst: P
       break;
     }
     case 'pump': {
-      const on = Boolean(inst.params.on);
       body = (
         <g>
           <circle cx={w / 2} cy={h / 2} r={w / 2 - 5} fill={fill(inst.id, 0)} {...sel} />
           <path d={`M${w / 2 - 13} ${h / 2 + 12} L${w / 2} ${h / 2 - 15} L${w / 2 + 13} ${h / 2 + 12} Z`}
-            fill={on ? '#e8f0ff' : '#666c78'} stroke="none" opacity={0.9} />
+            fill={pumpOn ? '#e8f0ff' : '#666c78'} stroke="none" opacity={0.9} />
         </g>
       );
       break;
@@ -190,7 +212,7 @@ export const PartSymbol = memo(function PartSymbol({ inst, selected }: { inst: P
       );
       break;
     case 'coldtrap-meissner': {
-      const on = Boolean(inst.params.on);
+      const on = livePumpOn(inst.id, def.kind) ?? Boolean(inst.params.on);
       body = (
         <g>
           <rect x={4} y={h / 2 - 9} width={w - 8} height={18} rx={9} fill={fill(inst.id, 0)} {...sel} />
@@ -201,7 +223,7 @@ export const PartSymbol = memo(function PartSymbol({ inst, selected }: { inst: P
       break;
     }
     case 'coldtrap-inline': {
-      const on = Boolean(inst.params.on);
+      const on = livePumpOn(inst.id, def.kind) ?? Boolean(inst.params.on);
       body = (
         <g>
           <path d={`M0 ${h * 0.75} H ${w * 0.5} a10 10 0 0 0 10 -10 V 0`} fill="none" stroke={fill(inst.id, 1)} strokeWidth={14} />
@@ -226,19 +248,18 @@ export const PartSymbol = memo(function PartSymbol({ inst, selected }: { inst: P
   // live numeric pressure labels (toggle in the controls bar): chambers,
   // pumps and traps show TRUE pressure; gauges show their READING — putting
   // the instrument's lie right next to the truth
-  const showValues = useStore.getState().showValues;
   let valueText: string | null = null;
   if (showValues) {
     const VALUE_KINDS = ['chamber', 'pump', 'leakdetector', 'coldtrap-meissner', 'tee', 'cross', 'vleak'];
     if (def.kind === 'gauge') {
       const snap = useStore.getState().snapshot;
       const r = snap?.gauges.find((g) => g.id === inst.id);
-      if (r) valueText = Number.isFinite(r.value) ? formatPressure(r.value, useStore.getState().unit) : r.status || 'off';
+      if (r) valueText = Number.isFinite(r.value) ? formatPressure(r.value, unit) : r.status || 'off';
     } else if (VALUE_KINDS.includes(def.kind)) {
       const compiled = useStore.getState().compiled;
       const node = compiled?.regionNode[`${inst.id}:0`];
       const p = node ? nodePressures.get(node) : undefined;
-      if (p !== undefined) valueText = formatPressure(p, useStore.getState().unit);
+      if (p !== undefined) valueText = formatPressure(p, unit);
     }
   }
 
