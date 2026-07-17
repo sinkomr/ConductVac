@@ -177,9 +177,13 @@ export function compileSystem(sys: SystemDefinition): CompiledSystem {
         regionNode[`${id}:0`] = c;
         for (let k = 0; k < nPorts; k++) {
           const pn = junction(k, 1e-4);
+          // tee branch (port 2): flow entering/leaving sideways turns 90°;
+          // run-to-run stays straight. Crosses stay symmetric hubs — a star
+          // can't express per-pair bends (would need port-to-port edges).
+          const bend = def.kind === 'tee' && k === 2 ? 1 : 0;
           edges.push({
             id: `${id}.s${k}`, a: c, b: pn,
-            conductance: { kind: 'tube', d, L: 1.5 * d },
+            conductance: { kind: 'tube', d, L: 1.5 * d, bends90: bend },
           });
         }
         break;

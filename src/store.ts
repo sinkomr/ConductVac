@@ -5,6 +5,7 @@ import type {
 } from './types';
 import { compileSystem, translateAction, type CompiledSystem } from './compile';
 import { PART_BY_ID } from './data/fittings';
+import { tidyConnections } from './ui/builder/tidy';
 import type { ChartSample, WorkerCmd, WorkerMsg } from './engine/worker';
 import type { FlowReport } from './engine/report';
 import EngineWorker from './engine/worker?worker';
@@ -147,6 +148,8 @@ interface AppState {
   disconnect(connId: string): void;
   undo(): void;
   redo(): void;
+  /** reassign joints to equivalent ports for cleaner wiring (undoable) */
+  tidyWiring(): void;
   loadSystem(sys: SystemDefinition): void;
   newSystem(): void;
   renameSystem(name: string): void;
@@ -426,8 +429,18 @@ export const useStore = create<AppState>((set, get) => ({
     set({ system: JSON.parse(next), stale: true, selection: null });
   },
 
+  tidyWiring: () => {
+    const st = get();
+    const t = tidyConnections(st.system);
+    if (!t.changed) return;
+    pushUndo(st.system);
+    set({ system: { ...st.system, connections: t.connections }, stale: true });
+  },
+
   loadSystem: (sys) => {
     absorbIds(sys);
+    const tidied = tidyConnections(sys);
+    if (tidied.changed) sys = { ...sys, connections: tidied.connections };
     pushUndo(get().system);
     set({
       system: sys, selection: null, stale: true, snapshot: null,

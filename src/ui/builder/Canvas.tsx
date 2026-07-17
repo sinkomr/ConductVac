@@ -2,23 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PartInstance } from '../../types';
 import { PART_BY_ID, portFlange } from '../../data/fittings';
 import { formatPressure, nodePartials, nodePressures, useStore } from '../../store';
-import { CELL, PartSymbol } from './PartSymbol';
+import { PartSymbol } from './PartSymbol';
 import { Colorbar } from '../colormap/Colorbar';
-
-/** transformed port position (px, canvas space) */
-export function portPos(inst: PartInstance, portIdx: number): { x: number; y: number } {
-  const def = PART_BY_ID[inst.def];
-  const p = def.ports[portIdx];
-  const cx = def.w / 2;
-  const cy = def.h / 2;
-  let dx = p.x - cx;
-  let dy = p.y - cy;
-  const r = inst.rot;
-  if (r === 90) [dx, dy] = [-dy, dx];
-  else if (r === 180) [dx, dy] = [-dx, -dy];
-  else if (r === 270) [dx, dy] = [dy, -dx];
-  return { x: (inst.x + cx + dx) * CELL, y: (inst.y + cy + dy) * CELL };
-}
+import { CELL, portDir, portPos } from './geometry';
+import { routeWire } from './route';
 
 interface Hover {
   x: number;
@@ -261,11 +248,13 @@ export function Canvas() {
             if (!pa || !pb) return null;
             const A = portPos(pa, c.a.port);
             const B = portPos(pb, c.b.port);
+            const r = routeWire(A, portDir(pa, c.a.port), B, portDir(pb, c.b.port));
             return (
               <g key={c.id}>
-                <line x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke="#8f97a8" strokeWidth={5} opacity={0.85} />
+                <path d={r.d} fill="none" stroke="#8f97a8" strokeWidth={5} opacity={0.85}
+                  strokeLinecap="round" strokeLinejoin="round" />
                 <circle
-                  cx={(A.x + B.x) / 2} cy={(A.y + B.y) / 2} r={5}
+                  cx={r.mid.x} cy={r.mid.y} r={5}
                   fill={c.mesh ? '#caa9ff' : '#8f97a8'}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {

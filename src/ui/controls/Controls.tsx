@@ -43,6 +43,9 @@ export function Controls() {
       <button className="btn" onClick={() => st().requestFit()} title="fit the system into view">
         ⤢ Fit
       </button>
+      <button className="btn" onClick={() => st().tidyWiring()} title="reassign joints to equivalent ports for cleaner wiring">
+        ⌗ Tidy
+      </button>
       <span className="sim-time">
         t = {snapshot ? formatSimTime(snapshot.t) : '—'}
         {snapshot?.steadyState && <em> (steady)</em>}

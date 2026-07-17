@@ -3,6 +3,7 @@ import type { PartInstance } from '../../types';
 import { PART_BY_ID } from '../../data/fittings';
 import { formatPressure, nodePressures, useStore } from '../../store';
 import { pressureColor } from '../colormap/colormap';
+import { CELL } from './geometry';
 
 /**
  * Schematic symbols (ISO-flavored: pump triangles, valve bowties, gauge
@@ -10,8 +11,6 @@ import { pressureColor } from '../colormap/colormap';
  * mapping comes from the compiler; while un-compiled everything renders in
  * neutral gray.
  */
-
-export const CELL = 26; // px per grid unit
 
 function fill(instId: string, region: number): string {
   const compiled = useStore.getState().compiled;
