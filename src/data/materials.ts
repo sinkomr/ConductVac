@@ -103,7 +103,7 @@ export const MATERIALS: Record<MaterialId, MaterialSpec> = {
   },
 };
 
-/** Bake enhancement: ×10 per 60 °C above 20 °C (documented Arrhenius stand-in). */
+/** Arrhenius stand-in: ×10 per 60 °C from 20 °C, continuous both directions (cold surfaces outgas less). */
 export function bakeEnhancement(temperatureC: number): number {
-  return Math.pow(10, Math.max(0, temperatureC - 20) / 60);
+  return Math.pow(10, (temperatureC - 20) / 60);
 }

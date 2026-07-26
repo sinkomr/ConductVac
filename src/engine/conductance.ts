@@ -43,9 +43,12 @@ export interface EdgeConductanceModel {
   /**
    * conductance for species index (of the active set) at mean total pressure
    * p̄, with valve opening fraction 0..1 (throttle valves scale the aperture
-   * area; other elements scale C linearly — documented approximation)
+   * area; other elements scale C linearly — documented approximation).
+   * tRel = T̄_edge/293 K scales the molecular term ×√tRel and the mean free
+   * path ∝ T/p (viscosity kept at 20 °C — second-order); default 1 is
+   * bit-identical to the isothermal model.
    */
-  cOf(gIdx: number, pMean: number, open: number): number;
+  cOf(gIdx: number, pMean: number, open: number, tRel?: number): number;
   /** fully-open molecular-limit conductance for species (for display) */
   cMolecular(gIdx: number): number;
 }
@@ -66,15 +69,16 @@ export function compileConductance(spec: ConductanceSpec, species: GasId[]): Edg
       const cMolShort = 1 / (1 / cAp + 1 / cMolLong);
       const viscFac = 180 * d ** 4 / L;
       return {
-        cOf: (gi, pMean, open) =>
-          open * (viscFac * pMean * vf[gi] + knudsenZ(d, pMean) * cMolShort * mf[gi]),
+        cOf: (gi, pMean, open, tRel = 1) =>
+          open * (viscFac * pMean * vf[gi] +
+            knudsenZ(d, pMean / tRel) * cMolShort * Math.sqrt(tRel) * mf[gi]),
         cMolecular: (gi) => cMolShort * mf[gi],
       };
     }
     case 'aperture': {
       const area = spec.area;
       return {
-        cOf: (gi, pMean, open) => open * apertureAir(area, pMean) * mf[gi],
+        cOf: (gi, pMean, open, tRel = 1) => open * apertureAir(area, pMean / tRel) * Math.sqrt(tRel) * mf[gi],
         cMolecular: (gi) => 11.6 * area * mf[gi],
       };
     }
@@ -83,10 +87,10 @@ export function compileConductance(spec: ConductanceSpec, species: GasId[]): Edg
       const tube = compileConductance({ kind: 'tube', d: spec.d, L: spec.L }, species);
       const areaFull = Math.max(spec.apertureArea, 1e-12);
       return {
-        cOf: (gi, pMean, open) => {
+        cOf: (gi, pMean, open, tRel = 1) => {
           if (open <= 0) return 0;
-          const cT = tube.cOf(gi, pMean, 1);
-          const cA = apertureAir(areaFull * open, pMean) * mf[gi];
+          const cT = tube.cOf(gi, pMean, 1, tRel);
+          const cA = apertureAir(areaFull * open, pMean / tRel) * Math.sqrt(tRel) * mf[gi];
           return 1 / (1 / cT + 1 / cA);
         },
         cMolecular: (gi) => 1 / (1 / tube.cMolecular(gi) + 1 / (11.6 * areaFull * mf[gi])),
@@ -96,7 +100,8 @@ export function compileConductance(spec: ConductanceSpec, species: GasId[]): Edg
       const scaling = spec.speciesScaling ?? 'molecular';
       const f = species.map((g) => (scaling === 'molecular' ? molecularSpeciesFactor(g) : 1));
       return {
-        cOf: (gi, _pMean, open) => open * spec.value * f[gi],
+        cOf: (gi, _pMean, open, tRel = 1) =>
+          open * spec.value * f[gi] * (scaling === 'molecular' ? Math.sqrt(tRel) : 1),
         cMolecular: (gi) => spec.value * f[gi],
       };
     }

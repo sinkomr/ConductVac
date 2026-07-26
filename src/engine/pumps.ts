@@ -1,5 +1,6 @@
 import type { EnginePumpSpec, EventLogEntry, GasId, PumpModelSpec } from '../types';
 import { GASES, isNoble } from '../data/gases';
+import { T_RELEASE, TAU_RELEASE, coldHeadTempK } from './thermal';
 
 /**
  * Pump models (§1.3).
@@ -149,6 +150,37 @@ export class PumpRuntime {
     return this.model.kind === 'turbo' || this.model.kind === 'diffusion' || this.model.kind === 'roots';
   }
 
+  /**
+   * Warm-up release rates for a cryo cold head (Torr·L/s per species, into
+   * `out`; returns true if any are nonzero). While cooling down / warming up
+   * the head sits at T ≈ 15 + 278·(1−spinFrac) K; each sorbed species leaves
+   * once its vapor-pressure gate opens, draining capacityUsed with τ = 120 s.
+   * NEG/sorption inventories are chemically/physically bound at room
+   * temperature and stay put (regenerate handles those).
+   */
+  releaseRates(out: Float64Array): boolean {
+    out.fill(0);
+    if (this.model.kind !== 'cryo') return false;
+    const tHead = coldHeadTempK(this.spinFrac);
+    let any = false;
+    for (let gi = 0; gi < this.species.length; gi++) {
+      const used = this.capacityUsed[gi];
+      if (used <= 0) continue;
+      const gate = smoothstep01((tHead - T_RELEASE[this.species[gi]]) / 30);
+      if (gate <= 0) continue;
+      out[gi] = (used / TAU_RELEASE) * gate;
+      any = true;
+    }
+    return any;
+  }
+
+  /** drain sorbed inventory released over an accepted step */
+  drainCapacity(rates: Float64Array, dt: number): void {
+    for (let gi = 0; gi < this.species.length; gi++) {
+      if (rates[gi] > 0) this.capacityUsed[gi] = Math.max(0, this.capacityUsed[gi] - rates[gi] * dt);
+    }
+  }
+
   /** 0..1 fill of a capture pump's capacity (worst species for cryo), null for throughput pumps */
   capacityFraction(): number | null {
     const m = this.model;
@@ -257,7 +289,11 @@ export class PumpRuntime {
         for (let gi = 0; gi < n; gi++) {
           const g = this.species[gi];
           this.A[gi] = m.sPeak * (SQRT28 / Math.sqrt(GASES[g].M)) * common;
-          this.kap[gi] = 1 / k0ForGas(m.k0, g);
+          // compression is exponential in blade speed: K0_eff = K0^spinFrac
+          // (bit-exact 1/K0 at full speed; collapses toward 1 while coasting,
+          // so a power-failed turbo lets the foreline climb back through it)
+          const k0g = k0ForGas(m.k0, g);
+          this.kap[gi] = this.spinFrac >= 1 ? 1 / k0g : Math.exp(-this.spinFrac * Math.log(k0g));
         }
         return;
       }

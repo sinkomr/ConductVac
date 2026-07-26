@@ -1,0 +1,233 @@
+import { describe, expect, it } from 'vitest';
+import { Sim } from '../solver';
+import { compileConductance } from '../conductance';
+import type { EngineSystemSpec, GasId } from '../../types';
+
+/**
+ * Per-node temperature + power-fail physics. The master identity — at a
+ * uniform 20 °C everything reduces EXACTLY to the isothermal model — is
+ * guarded by the entire pre-existing suite staying green; these tests cover
+ * the new behavior.
+ */
+
+const base = (over: Partial<EngineSystemSpec>): EngineSystemSpec => ({
+  nodes: [], edges: [], pumps: [], leaks: [], gauges: [],
+  species: ['air', 'H2O', 'H2', 'He'],
+  startAtAtmosphere: true,
+  ...over,
+});
+
+describe('temperature identity', () => {
+  it('cOf without tRel is bit-identical to tRel = 1, and molecular scales as √tRel', () => {
+    const species: GasId[] = ['air', 'H2', 'H2O'];
+    const tube = compileConductance({ kind: 'tube', d: 2.5, L: 100 }, species);
+    const ap = compileConductance({ kind: 'aperture', area: 5 }, species);
+    const fixed = compileConductance({ kind: 'fixed', value: 0.3, speciesScaling: 'molecular' }, species);
+    for (const p of [1e-8, 1e-3, 1, 100]) {
+      for (let g = 0; g < 3; g++) {
+        expect(tube.cOf(g, p, 1, 1)).toBe(tube.cOf(g, p, 1));
+        expect(ap.cOf(g, p, 0.7, 1)).toBe(ap.cOf(g, p, 0.7));
+        expect(fixed.cOf(g, p, 1, 1)).toBe(fixed.cOf(g, p, 1));
+      }
+    }
+    // deep molecular limit: exact √tRel scaling
+    const tRel = 1.44;
+    expect(tube.cOf(0, 1e-9, 1, tRel) / tube.cOf(0, 1e-9, 1)).toBeCloseTo(Math.sqrt(tRel), 6);
+    expect(fixed.cOf(0, 1e-9, 1, tRel) / fixed.cOf(0, 1e-9, 1)).toBe(Math.sqrt(tRel));
+  });
+
+  it('setTemperature to ambient mid-run is physically a no-op', () => {
+    const mk = () => new Sim(base({
+      nodes: [{ id: 'ch', volume: 20, label: 'chamber' }],
+      pumps: [{ id: 'p1', node: 'ch', model: { kind: 'displacement', sPeak: 5, pUlt: 1e-3 }, on: true }],
+      leaks: [{ id: 'lk', node: 'ch', qStd: 1e-6 }],
+    }));
+    const a = mk();
+    const b = mk();
+    b.scheduleEvents([
+      { t: 5, action: { type: 'setTemperature', nodeIds: 'all', temperatureC: 20 } },
+      { t: 20, action: { type: 'setTemperature', nodeIds: ['ch'], temperatureC: 20 } },
+    ]);
+    a.advance(60);
+    b.advance(60);
+    // only the event-driven dt resets differ — trajectories agree within error control
+    expect(b.pressureOf('ch') / a.pressureOf('ch')).toBeCloseTo(1, 2);
+  });
+});
+
+describe('ideal-gas heating', () => {
+  it('sealed chamber: p tracks T exactly (isochoric), and returns on cooling', () => {
+    const sim = new Sim(base({
+      nodes: [{ id: 'ch', volume: 10, label: 'sealed' }],
+    }));
+    sim.scheduleEvents([
+      { t: 1, action: { type: 'setTemperature', nodeIds: 'all', temperatureC: 100, tauOverride: 50 } },
+    ]);
+    sim.advance(1 + 50 * 12); // 12τ: fully settled
+    const hot = sim.pressureOf('ch');
+    expect(hot / 760).toBeCloseTo(373.15 / 293.15, 3);
+    sim.applyAction({ type: 'setTemperature', nodeIds: 'all', temperatureC: 20, tauOverride: 50 });
+    sim.advance(50 * 12);
+    expect(sim.pressureOf('ch') / 760).toBeCloseTo(1, 3);
+  });
+});
+
+describe('bake by temperature (dose)', () => {
+  const bakeSys = () => base({
+    nodes: [{
+      id: 'ch', volume: 5, label: 'chamber',
+      surfaces: [{ area: 1000, material: 'ss304' }],
+    }],
+    pumps: [{ id: 'p1', node: 'ch', model: { kind: 'displacement', sPeak: 20, pUlt: 1e-9 }, on: true }],
+  });
+
+  it('holding 150 °C long enough flips baked; outgassing spikes while hot', () => {
+    const sim = new Sim(bakeSys());
+    sim.advance(1800);
+    const before = sim.pressureOf('ch');
+    sim.applyAction({ type: 'setTemperature', nodeIds: 'all', temperatureC: 150, tauOverride: 60 });
+    sim.advance(1800);
+    const during = sim.pressureOf('ch');
+    expect(during / before).toBeGreaterThan(30); // Arrhenius ×147 at 150 °C, minus decay drift
+    expect(sim.net.surfaces[0].baked).toBe(false); // dose not yet reached (~1 h at 150 °C)
+    sim.advance(70000); // total hot time ≈ 20 h > 16.7 h dose target
+    expect(sim.net.surfaces[0].baked).toBe(true);
+    // cool down: H2O load collapses vs an unbaked control at the same age
+    sim.applyAction({ type: 'setTemperature', nodeIds: 'all', temperatureC: 20, tauOverride: 60 });
+    sim.advance(4000);
+    const ctrl = new Sim(bakeSys());
+    ctrl.advance(sim.t);
+    expect(sim.partialOf('ch', 'H2O')).toBeLessThan(ctrl.partialOf('ch', 'H2O') / 10);
+  });
+});
+
+describe('power failure', () => {
+  const turboSys = () => base({
+    nodes: [
+      // start already roughed — a turbo alone can't cross over from 760 Torr
+      { id: 'ch', volume: 50, label: 'chamber', initial: { air: 1e-4 } },
+      { id: 'fl', volume: 0.2, label: 'foreline', initial: { air: 5e-3 } },
+    ],
+    pumps: [
+      {
+        id: 'turbo', node: 'ch', backingNode: 'fl', on: true,
+        model: {
+          kind: 'turbo', sPeak: 80, k0: { N2: 1e8, air: 1e8, He: 1e6, H2: 5e3 },
+          pCritBack: 0.5, tauSpin: 30, cOff: 2,
+        },
+      },
+      { id: 'scroll', node: 'fl', on: true, model: { kind: 'displacement', sPeak: 3, pUlt: 5e-3 } },
+    ],
+    leaks: [{ id: 'lk', node: 'ch', qStd: 1e-6 }],
+  });
+
+  it('coast-down floods the chamber; restore recovers; control unaffected', () => {
+    const sim = new Sim(turboSys());
+    sim.advance(600);
+    sim.fastForward(86400);
+    const pBase = sim.pressureOf('ch');
+    expect(pBase).toBeLessThan(1e-7);
+    const t0 = sim.t;
+    sim.applyAction({ type: 'powerFail', restoreAfter: 300 });
+    sim.advance(300);
+    const pDark = sim.pressureOf('ch');
+    expect(pDark / pBase).toBeGreaterThan(100); // ≥2 decades within 5 min
+    // restore fired at t0+300: pumps return, system recovers
+    sim.advance(3600);
+    expect(sim.pressureOf('ch')).toBeLessThan(1e-6);
+    expect(sim.t).toBeGreaterThan(t0 + 3600);
+
+    const ctrl = new Sim(turboSys());
+    ctrl.advance(600);
+    ctrl.fastForward(86400);
+    ctrl.advance(300);
+    expect(ctrl.pressureOf('ch') / pBase).toBeLessThan(3); // no fail → no flood
+  });
+
+  it('K0 collapses log-linearly with spin (bit-exact at full speed)', () => {
+    const sim = new Sim(turboSys());
+    const pm = sim.net.pumps.find((p) => p.spec.id === 'turbo')!;
+    const partials = new Float64Array(4);
+    pm.freeze(1e-8, 1e-3, partials);
+    const kapFull = pm.kap[0];
+    expect(kapFull).toBeCloseTo(1e-8, 20); // exactly 1/K0(air)
+    pm.spinFrac = 0.5;
+    pm.freeze(1e-8, 1e-3, partials);
+    expect(Math.log(pm.kap[0])).toBeCloseTo(0.5 * Math.log(kapFull), 10); // K0^0.5
+  });
+
+  it('electronic gauges die on power fail; the bourdon survives; restore revives', () => {
+    const sim = new Sim(base({
+      // low start: a hot cathode enabled at atmosphere would trip on its own
+      nodes: [{ id: 'ch', volume: 5, label: 'chamber', initial: { air: 1e-7 } }],
+      gauges: [
+        { id: 'hc', node: 'ch', type: 'hotcathode', seed: 3 },
+        { id: 'bd', node: 'ch', type: 'bourdon', seed: 4 },
+      ],
+      pumps: [{ id: 'p1', node: 'ch', model: { kind: 'displacement', sPeak: 20, pUlt: 1e-9 }, on: true }],
+    }));
+    sim.advance(30);
+    sim.applyAction({ type: 'powerFail' });
+    sim.advance(5);
+    let snap = sim.snapshot();
+    expect(snap.powerFailed).toBe(true);
+    expect(snap.gauges.find((g) => g.id === 'hc')!.status).toBe('off');
+    expect(Number.isFinite(snap.gauges.find((g) => g.id === 'bd')!.value)).toBe(true);
+    sim.applyAction({ type: 'powerRestore', pumpIds: 'all', gaugeIds: 'all' });
+    sim.advance(5);
+    snap = sim.snapshot();
+    expect(snap.powerFailed).toBe(false);
+    expect(snap.gauges.find((g) => g.id === 'hc')!.status).not.toBe('off');
+  });
+});
+
+describe('cryo warm-up release', () => {
+  it('a loaded cold head re-emits its inventory when switched off, mass-balanced', () => {
+    const sim = new Sim(base({
+      nodes: [{ id: 'ch', volume: 5, label: 'chamber', initial: { air: 1e-8 } }],
+      pumps: [{
+        id: 'cryo', node: 'ch', on: true,
+        model: { kind: 'cryo', sPeak: { H2O: 100, N2: 50 }, capacity: { H2O: 1000 }, crossoverWarn: 0.5 },
+      }],
+    }));
+    const pm = sim.net.pumps[0];
+    const h2o = sim.net.species.indexOf('H2O');
+    pm.capacityUsed[h2o] = 300; // pre-loaded ice
+    sim.advance(300); // cold + on: gates closed, nothing escapes
+    expect(pm.capacityUsed[h2o]).toBeCloseTo(300, 6);
+    expect(sim.partialOf('ch', 'H2O')).toBeLessThan(1e-6);
+
+    sim.applyAction({ type: 'pump', pumpId: 'cryo', on: false });
+    sim.advance(1500); // head warms through the 165 K H2O gate, τ_release = 120 s
+    const released = sim.partialOf('ch', 'H2O') * 5; // Torr·L now in the gas phase
+    expect(pm.capacityUsed[h2o]).toBeLessThan(1);
+    expect(released).toBeGreaterThan(300 * 0.95);
+    expect(released).toBeLessThan(300 * 1.05);
+  });
+});
+
+describe('thermal transpiration', () => {
+  it('an ion gauge on a hot zone under-reads by √(T0/T) in the molecular regime', () => {
+    const sim = new Sim(base({
+      nodes: [{ id: 'ch', volume: 5, label: 'hot zone', initial: { air: 1e-7 } }],
+      gauges: [{ id: 'hc', node: 'ch', type: 'hotcathode', seed: 7 }],
+    }));
+    sim.applyAction({ type: 'setTemperature', nodeIds: 'all', temperatureC: 150, tauOverride: 1 });
+    sim.advance(20); // T settled; p rose with T (sealed); gauge lag settled
+    const r = sim.snapshot().gauges[0];
+    expect(r.value / r.truth).toBeGreaterThan(0.79);
+    expect(r.value / r.truth).toBeLessThan(0.88); // √(293/423) ≈ 0.832 ± noise
+  });
+
+  it('no correction in the viscous regime', () => {
+    const sim = new Sim(base({
+      nodes: [{ id: 'ch', volume: 5, label: 'hot zone', initial: { air: 10 } }],
+      gauges: [{ id: 'pi', node: 'ch', type: 'pirani', seed: 7 }],
+    }));
+    sim.applyAction({ type: 'setTemperature', nodeIds: 'all', temperatureC: 150, tauOverride: 1 });
+    sim.advance(20);
+    const r = sim.snapshot().gauges[0];
+    expect(r.value / r.truth).toBeGreaterThan(0.85);
+    expect(r.value / r.truth).toBeLessThan(1.15);
+  });
+});

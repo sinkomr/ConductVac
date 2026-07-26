@@ -28,8 +28,10 @@ export class SurfaceRuntime {
   baked: boolean;
   /** sim time when this surface last saw > 100 Torr */
   exposureStart = 0;
-  /** bake temperature currently applied, or null */
+  /** explicit bake in progress (bakeEnd-compat latch; the RATE follows node temperature) */
   bakingAtC: number | null = null;
+  /** integrated thermal dose toward `baked` (10^((T−150°C)/60)·dt while T ≥ 80 °C) */
+  bakeDose = 0;
 
   constructor(nodeIdx: number, spec: SurfaceSpec) {
     this.nodeIdx = nodeIdx;
@@ -42,13 +44,15 @@ export class SurfaceRuntime {
    * Add this surface's outgassing + permeation into qOut (nSpecies-length,
    * Torr·L/s), for sim time t. When qPermOut is supplied, the permeation
    * terms are routed there instead of qOut (the flow report splits them;
-   * the solver passes one array and physics is unchanged).
+   * the solver passes one array and physics is unchanged). tempC is the
+   * NODE temperature — the Arrhenius enhancement is always-on, so a bake
+   * is just a setpoint (20 °C ⇒ factor exactly 1, matching the old model).
    */
-  addLoads(t: number, species: GasId[], humidityRH: number, qOut: Float64Array, qPermOut?: Float64Array): void {
+  addLoads(t: number, species: GasId[], humidityRH: number, qOut: Float64Array, qPermOut?: Float64Array, tempC = 20): void {
     const mat = MATERIALS[this.material];
     const tExp = Math.max(0, t - this.exposureStart);
     const decay = mat.n === 0 ? 1 : Math.pow(T1 / (tExp + T0), mat.n);
-    const bakeFac = this.bakingAtC !== null ? bakeEnhancement(this.bakingAtC) : 1;
+    const bakeFac = bakeEnhancement(tempC);
     const rhFac = Math.max(0.02, humidityRH / 50);
 
     if (!this.baked) {

@@ -208,6 +208,8 @@ const pushUndo = (sys: SystemDefinition) => {
 // node pressures by engine node id — read by the colormap without re-render churn
 export const nodePressures = new Map<string, number>();
 export const nodePartials = new Map<string, number[]>();
+/** live node temperatures, °C, by engine node id */
+export const nodeTemps = new Map<string, number>();
 
 /** the primary selection (last-selected part id), for single-part panels */
 export const selectedOne = (s: { selection: string[] }): string | null =>
@@ -238,6 +240,7 @@ function ensureWorker(set: (p: Partial<AppState>) => void, get: () => AppState):
         for (const n of msg.snap.nodes) {
           nodePressures.set(n.id, n.pTotal);
           nodePartials.set(n.id, n.partials);
+          nodeTemps.set(n.id, n.tempC);
         }
         appendSamples(msg.samples);
         set({

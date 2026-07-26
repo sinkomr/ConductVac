@@ -544,7 +544,7 @@ add({
   ],
   defaults: { area: 500, on: false, portFlange: 'KF40' },
   data: {},
-  fidelity: 'An in-chamber 77 K surface pumps water at near the impingement rate (~10 L/s/cm², sticking included) and CO₂; it does NOT pump N₂/O₂/H₂/He (their 77 K vapor pressures are far too high). Capacity ≈ ice buildup; warm-up release is not modeled — regenerate while off (fidelity note).',
+  fidelity: 'An in-chamber 77 K surface pumps water at near the impingement rate (~10 L/s/cm², sticking included) and CO₂; it does NOT pump N₂/O₂/H₂/He (their 77 K vapor pressures are far too high). Capacity ≈ ice buildup; switching LN₂ off warms the coil and RE-RELEASES the ice (H₂O above ~165 K) — watch the pressure spike, or regenerate while off to skip it.',
 });
 add({
   id: 'coldtrap-inline', name: 'Right-angle LN₂ trap', category: 'Cold traps', kind: 'coldtrap-inline',
@@ -559,7 +559,7 @@ add({
   ],
   defaults: { on: false, portFlange: 'KF25' },
   data: {},
-  fidelity: 'Foreline trap: conductance of an elbow ×0.4 (baffled path); while cold it pumps H₂O like a small cold surface — stops oil/water migration both ways. Warm-up release not modeled.',
+  fidelity: 'Foreline trap: conductance of an elbow ×0.4 (baffled path); while cold it pumps H₂O like a small cold surface — stops oil/water migration both ways. Letting it warm re-releases the trapped water into the foreline.',
 });
 
 add({
