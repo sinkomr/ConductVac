@@ -1,9 +1,9 @@
-import { formatPressure, nodePartials, nodePressures, useStore } from '../store';
+import { formatPressure, nodePartials, nodePressures, selectedOne, useStore } from '../store';
 import { GASES } from '../data/gases';
 
 /** stacked partial-pressure view for the selected node (§3.3) */
 export function SpeciesPanel() {
-  const selection = useStore((s) => s.selection);
+  const selection = useStore(selectedOne);
   const compiled = useStore((s) => s.compiled);
   const snapshot = useStore((s) => s.snapshot);
   const unit = useStore((s) => s.unit);

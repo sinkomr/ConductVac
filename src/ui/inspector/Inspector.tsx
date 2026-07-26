@@ -1,6 +1,6 @@
 import { PART_BY_ID } from '../../data/fittings';
 import { MATERIALS } from '../../data/materials';
-import { formatPressure, nodePartials, nodePressures, useStore } from '../../store';
+import { formatPressure, nodePartials, nodePressures, selectedOne, useStore } from '../../store';
 
 export function Inspector() {
   const selection = useStore((s) => s.selection);
@@ -14,7 +14,25 @@ export function Inspector() {
   const liveAction = useStore((s) => s.liveAction);
   useStore((s) => s.chartTick);
 
-  const inst = system.parts.find((p) => p.id === selection);
+  if (selection.length > 1) {
+    const s = useStore.getState();
+    return (
+      <aside className="inspector open">
+        <button className="btn mobile-only drawer-close" onClick={() => s.select(null)}>✕ close</button>
+        <h3>{selection.length} parts selected</h3>
+        <div className="hint">Drag any member to move the group. Shift-click toggles membership.</div>
+        <div className="btn-row">
+          <button className="btn" onClick={() => s.rotateSelection()}>Rotate all (R)</button>
+          <button className="btn" onClick={() => s.duplicateSelection()}>Duplicate (Ctrl+D)</button>
+        </div>
+        <div className="btn-row">
+          <button className="btn danger" onClick={() => s.deleteParts(s.selection)}>Delete all</button>
+        </div>
+      </aside>
+    );
+  }
+
+  const inst = system.parts.find((p) => p.id === selectedOne({ selection }));
   if (!inst) {
     return (
       <aside className="inspector">

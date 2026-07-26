@@ -6,6 +6,8 @@ import type {
 import { compileSystem, translateAction, type CompiledSystem } from './compile';
 import { PART_BY_ID } from './data/fittings';
 import { tidyConnections } from './ui/builder/tidy';
+import { buildPaste, copyParts, type ClipboardData } from './clipboard';
+import { portPos } from './ui/builder/geometry';
 import type { ChartSample, WorkerCmd, WorkerMsg } from './engine/worker';
 import type { FlowReport } from './engine/report';
 import EngineWorker from './engine/worker?worker';
@@ -107,7 +109,8 @@ function absorbIds(sys: SystemDefinition) {
 
 interface AppState {
   system: SystemDefinition;
-  selection: string | null;
+  /** selected part ids, ordered — the LAST entry is the primary selection */
+  selection: string[];
   connectFrom: { part: string; port: number } | null;
   placing: string | null; // catalog def id being placed
   compiled: CompiledSystem | null;
@@ -138,10 +141,21 @@ interface AppState {
   setPlacing(defId: string | null): void;
   addPart(defId: string, x: number, y: number): string;
   movePart(id: string, x: number, y: number): void;
+  moveParts(entries: { id: string; x: number; y: number }[]): void;
   rotatePart(id: string): void;
+  rotateSelection(): void;
   setParam(id: string, key: string, value: number | string | boolean): void;
   deletePart(id: string): void;
+  deleteParts(ids: string[]): void;
   select(id: string | null): void;
+  toggleSelect(id: string): void;
+  selectMany(ids: string[], additive: boolean): void;
+  selectAll(): void;
+  copySelection(): void;
+  pasteClipboard(): void;
+  duplicateSelection(): void;
+  /** cut a 2-port part into an existing wire (single undo entry) */
+  spliceIntoWire(defId: string, connId: string, x: number, y: number, rot: PartInstance['rot']): void;
   beginConnect(part: string, port: number): void;
   completeConnect(part: string, port: number): void;
   toggleMesh(connId: string): void;
@@ -191,6 +205,13 @@ const pushUndo = (sys: SystemDefinition) => {
 // node pressures by engine node id — read by the colormap without re-render churn
 export const nodePressures = new Map<string, number>();
 export const nodePartials = new Map<string, number[]>();
+
+/** the primary selection (last-selected part id), for single-part panels */
+export const selectedOne = (s: { selection: string[] }): string | null =>
+  s.selection.length ? s.selection[s.selection.length - 1] : null;
+
+// copy/paste buffer (in-memory; survives system switches, not reloads)
+let clipboard: ClipboardData | null = null;
 
 let worker: Worker | null = null;
 
@@ -266,7 +287,7 @@ function liveParamAction(inst: PartInstance, key: string, value: number | string
 
 export const useStore = create<AppState>((set, get) => ({
   system: emptySystem(),
-  selection: null,
+  selection: [],
   connectFrom: null,
   placing: null,
   compiled: null,
@@ -299,19 +320,26 @@ export const useStore = create<AppState>((set, get) => ({
     const inst: PartInstance = { id, def: defId, x, y, rot: 0, params: { ...def.defaults } };
     set({
       system: { ...get().system, parts: [...get().system.parts, inst] },
-      selection: id,
+      selection: [id],
       stale: true,
     });
     return id;
   },
 
-  movePart: (id, x, y) =>
+  movePart: (id, x, y) => get().moveParts([{ id, x, y }]),
+
+  moveParts: (entries) => {
+    const byId = new Map(entries.map((e) => [e.id, e]));
     set({
       system: {
         ...get().system,
-        parts: get().system.parts.map((p) => (p.id === id ? { ...p, x, y } : p)),
+        parts: get().system.parts.map((p) => {
+          const e = byId.get(p.id);
+          return e ? { ...p, x: e.x, y: e.y } : p;
+        }),
       },
-    }),
+    });
+  },
 
   rotatePart: (id) => {
     pushUndo(get().system);
@@ -320,6 +348,22 @@ export const useStore = create<AppState>((set, get) => ({
         ...get().system,
         parts: get().system.parts.map((p) =>
           p.id === id ? { ...p, rot: (((p.rot + 90) % 360) as PartInstance['rot']) } : p,
+        ),
+      },
+      stale: true,
+    });
+  },
+
+  rotateSelection: () => {
+    const st = get();
+    if (st.selection.length === 0) return;
+    const sel = new Set(st.selection);
+    pushUndo(st.system);
+    set({
+      system: {
+        ...st.system,
+        parts: st.system.parts.map((p) =>
+          sel.has(p.id) ? { ...p, rot: (((p.rot + 90) % 360) as PartInstance['rot']) } : p,
         ),
       },
       stale: true,
@@ -348,21 +392,108 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  deletePart: (id) => {
+  deletePart: (id) => get().deleteParts([id]),
+
+  deleteParts: (ids) => {
     const st = get();
+    if (ids.length === 0) return;
+    const gone = new Set(ids);
     pushUndo(st.system);
     set({
       system: {
         ...st.system,
-        parts: st.system.parts.filter((p) => p.id !== id),
-        connections: st.system.connections.filter((c) => c.a.part !== id && c.b.part !== id),
+        parts: st.system.parts.filter((p) => !gone.has(p.id)),
+        connections: st.system.connections.filter((c) => !gone.has(c.a.part) && !gone.has(c.b.part)),
       },
-      selection: st.selection === id ? null : st.selection,
+      selection: st.selection.filter((s) => !gone.has(s)),
       stale: true,
     });
   },
 
-  select: (id) => set({ selection: id, connectFrom: null }),
+  select: (id) => set({ selection: id ? [id] : [], connectFrom: null }),
+
+  toggleSelect: (id) =>
+    set({
+      selection: get().selection.includes(id)
+        ? get().selection.filter((s) => s !== id)
+        : [...get().selection, id],
+      connectFrom: null,
+    }),
+
+  selectMany: (ids, additive) => {
+    const base = additive ? get().selection.filter((s) => !ids.includes(s)) : [];
+    set({ selection: [...base, ...ids], connectFrom: null });
+  },
+
+  selectAll: () => set({ selection: get().system.parts.map((p) => p.id), connectFrom: null }),
+
+  copySelection: () => {
+    const st = get();
+    clipboard = copyParts(st.system, st.selection) ?? clipboard;
+  },
+
+  pasteClipboard: () => {
+    if (!clipboard) return;
+    const st = get();
+    const { parts, connections, ids } = buildPaste(clipboard, freshId);
+    pushUndo(st.system);
+    set({
+      system: {
+        ...st.system,
+        parts: [...st.system.parts, ...parts],
+        connections: [...st.system.connections, ...connections],
+      },
+      selection: ids,
+      stale: true,
+    });
+  },
+
+  duplicateSelection: () => {
+    const st = get();
+    const clip = copyParts(st.system, st.selection);
+    if (!clip) return;
+    const { parts, connections, ids } = buildPaste(clip, freshId);
+    pushUndo(st.system);
+    set({
+      system: {
+        ...st.system,
+        parts: [...st.system.parts, ...parts],
+        connections: [...st.system.connections, ...connections],
+      },
+      selection: ids,
+      stale: true,
+    });
+  },
+
+  spliceIntoWire: (defId, connId, x, y, rot) => {
+    const st = get();
+    const def = PART_BY_ID[defId];
+    const conn = st.system.connections.find((c) => c.id === connId);
+    if (!def || !conn || def.ports.length !== 2) return;
+    const endA = st.system.parts.find((p) => p.id === conn.a.part);
+    if (!endA) return;
+    pushUndo(st.system);
+    const id = freshId(defId.split('-')[0]);
+    const inst: PartInstance = { id, def: defId, x, y, rot, params: { ...def.defaults } };
+    // the new port nearer to the old endpoint A takes its side
+    const aPos = portPos(endA, conn.a.port);
+    const d0 = Math.hypot(portPos(inst, 0).x - aPos.x, portPos(inst, 0).y - aPos.y);
+    const d1 = Math.hypot(portPos(inst, 1).x - aPos.x, portPos(inst, 1).y - aPos.y);
+    const portA = d0 <= d1 ? 0 : 1;
+    set({
+      system: {
+        ...st.system,
+        parts: [...st.system.parts, inst],
+        connections: [
+          ...st.system.connections.filter((c) => c.id !== connId),
+          { id: freshId('c'), a: conn.a, b: { part: id, port: portA } },
+          { id: freshId('c'), a: { part: id, port: 1 - portA }, b: conn.b },
+        ],
+      },
+      selection: [id],
+      stale: true,
+    });
+  },
 
   beginConnect: (part, port) => set({ connectFrom: { part, port } }),
 
@@ -419,14 +550,14 @@ export const useStore = create<AppState>((set, get) => ({
     const prev = undoStack.pop();
     if (!prev) return;
     redoStack.push(JSON.stringify(get().system));
-    set({ system: JSON.parse(prev), stale: true, selection: null });
+    set({ system: JSON.parse(prev), stale: true, selection: [] });
   },
 
   redo: () => {
     const next = redoStack.pop();
     if (!next) return;
     undoStack.push(JSON.stringify(get().system));
-    set({ system: JSON.parse(next), stale: true, selection: null });
+    set({ system: JSON.parse(next), stale: true, selection: [] });
   },
 
   tidyWiring: () => {
@@ -443,7 +574,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (tidied.changed) sys = { ...sys, connections: tidied.connections };
     pushUndo(get().system);
     set({
-      system: sys, selection: null, stale: true, snapshot: null,
+      system: sys, selection: [], stale: true, snapshot: null,
       simLoaded: false, eventLog: [], fitTick: get().fitTick + 1,
     });
     get().loadSim(false);
@@ -451,7 +582,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   newSystem: () => {
     pushUndo(get().system);
-    set({ system: emptySystem(), selection: null, stale: true, snapshot: null, simLoaded: false });
+    set({ system: emptySystem(), selection: [], stale: true, snapshot: null, simLoaded: false });
   },
 
   renameSystem: (name) => set({ system: { ...get().system, name } }),
