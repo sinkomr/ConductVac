@@ -23,6 +23,7 @@ export function Canvas() {
   const placing = useStore((s) => s.placing);
   const compiled = useStore((s) => s.compiled);
   const unit = useStore((s) => s.unit);
+  const highlightParts = useStore((s) => s.highlightParts);
   const species = useStore((s) => s.snapshot?.species);
   const st = useStore.getState;
 
@@ -341,7 +342,7 @@ export function Canvas() {
               <g
                 key={inst.id}
                 transform={`translate(${inst.x * CELL} ${inst.y * CELL}) rotate(${inst.rot} ${(def.w * CELL) / 2} ${(def.h * CELL) / 2})`}
-                className="part"
+                className={`part ${highlightParts?.includes(inst.id) ? 'culprit' : ''}`}
                 onPointerDown={(e) => {
                   e.stopPropagation();
                   if (e.shiftKey) {

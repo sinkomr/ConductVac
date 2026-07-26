@@ -8,6 +8,7 @@ import { ScriptEditor } from './controls/ScriptEditor';
 import { EventLog } from './controls/EventLog';
 import { Sankey } from './sankey/Sankey';
 import { SpeciesPanel } from './SpeciesPanel';
+import { RgaPanel } from './rga/RgaPanel';
 import { useStore, type PressureUnit } from '../store';
 import { EXAMPLES } from '../examples';
 import { encodeSystem } from '../share';
@@ -74,6 +75,7 @@ export function App() {
     ['charts', 'Strip charts'],
     ['flow', 'Gas flow'],
     ['species', 'Species'],
+    ['rga', 'RGA'],
     ['script', 'Event script'],
     ['log', 'Event log'],
   ] as const;
@@ -156,6 +158,7 @@ export function App() {
           {bottomTab === 'charts' && <StripCharts />}
           {bottomTab === 'flow' && <Sankey />}
           {bottomTab === 'species' && <SpeciesPanel />}
+          {bottomTab === 'rga' && <RgaPanel />}
           {bottomTab === 'script' && <ScriptEditor />}
           {bottomTab === 'log' && <EventLog />}
         </div>

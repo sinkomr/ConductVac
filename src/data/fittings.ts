@@ -15,7 +15,7 @@ export type PartKind =
   | 'chamber' | 'tube' | 'flex' | 'bellows' | 'elbow' | 'tee' | 'cross'
   | 'adapter' | 'blank' | 'viewport' | 'feedthrough'
   | 'valve' | 'valve-butterfly' | 'valve-metering' | 'valve-vent' | 'valve-gas'
-  | 'pump' | 'gauge' | 'leak' | 'vleak' | 'leakdetector'
+  | 'pump' | 'gauge' | 'rga' | 'leak' | 'vleak' | 'leakdetector'
   | 'payload' | 'coldtrap-meissner' | 'coldtrap-inline';
 
 export interface ParamDef {
@@ -409,6 +409,16 @@ for (const g of GAUGE_PARTS) {
     fidelity: GAUGE_SPECS[g.type].notes,
   });
 }
+
+add({
+  id: 'rga', name: 'RGA head (quadrupole)', category: 'Gauges', kind: 'rga',
+  w: 1, h: 1,
+  ports: [{ x: 0.5, y: 1, flange: 'portFlange', dynamic: true }],
+  params: [FLANGE_SELECT],
+  defaults: { portFlange: 'CF40' },
+  data: {},
+  fidelity: 'Residual gas analyzer: partial pressures rendered as an m/z bar spectrum with standard electron-impact cracking patterns, weighted by ionization sensitivity (H2 under-reads, Ar/CO2 over-read). Filament interlock blanks the spectrum above 1e-4 Torr. Reads true partials — drift, ESD peaks and mass discrimination are not modeled.',
+});
 
 // ---------------------------------------------------------------- sources ----
 
