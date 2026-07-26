@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import uPlot from 'uplot';
+import { downloadBlob } from '../download';
 import { chartHistory, useStore } from '../../store';
 
 /**
@@ -140,13 +141,4 @@ export function StripCharts() {
       <div ref={hostRef} className="chart-host" />
     </div>
   );
-}
-
-function downloadBlob(blob: Blob, name: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(url);
 }
