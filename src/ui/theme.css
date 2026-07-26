@@ -186,6 +186,9 @@ body {
 
 .values-toggle { display: flex; gap: 5px; align-items: center; color: #9aa2b1; margin-left: 6px; }
 
+.marquee { fill: #6ab0ff18; stroke: #6ab0ff; stroke-dasharray: 5 4; stroke-width: 1.5; }
+.splice-target { stroke: #7bd88f; stroke-width: 7; }
+
 /* ------------------------------------------------------------- mobile ---- */
 
 .mobile-only { display: none !important; }

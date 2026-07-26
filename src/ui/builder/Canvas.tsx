@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PartInstance } from '../../types';
 import { PART_BY_ID, portFlange } from '../../data/fittings';
 import { formatPressure, nodePartials, nodePressures, useStore } from '../../store';
@@ -7,6 +7,8 @@ import { Colorbar } from '../colormap/Colorbar';
 import { CELL, portDir, portPos } from './geometry';
 import { routeWire } from './route';
 import { canvasSvg } from './exportSvg';
+import { partsInRect } from './selectbox';
+import { hitTestWires, hitTooCloseToEnds, splicePlacement } from './splice';
 
 interface Hover {
   x: number;
@@ -26,8 +28,9 @@ export function Canvas() {
 
   const svgRef = useRef<SVGSVGElement>(null);
   const [view, setView] = useState({ x: -60, y: -60, scale: 1 });
-  const [drag, setDrag] = useState<null | { id: string; ox: number; oy: number }>(null);
+  const [drag, setDrag] = useState<null | { ids: string[]; offsets: Record<string, { ox: number; oy: number }> }>(null);
   const [pan, setPan] = useState<null | { sx: number; sy: number; vx: number; vy: number }>(null);
+  const [marquee, setMarquee] = useState<null | { x0: number; y0: number; x1: number; y1: number }>(null);
   const [mouse, setMouse] = useState({ x: 0, y: 0 });
   const [hover, setHover] = useState<Hover | null>(null);
   useStore((s) => s.chartTick); // repaint tooltip pressures
@@ -91,10 +94,11 @@ export function Canvas() {
       if (e.key === 'Escape') {
         s.setPlacing(null);
         s.select(null);
-      } else if ((e.key === 'Delete' || e.key === 'Backspace') && s.selection) {
-        s.deletePart(s.selection);
-      } else if ((e.key === 'r' || e.key === 'R') && s.selection) {
-        s.rotatePart(s.selection);
+        setMarquee(null);
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && s.selection.length) {
+        s.deleteParts(s.selection);
+      } else if ((e.key === 'r' || e.key === 'R') && s.selection.length && !e.ctrlKey && !e.metaKey) {
+        s.rotateSelection();
       } else if (e.key === 'z' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         if (e.shiftKey) s.redo();
@@ -102,6 +106,16 @@ export function Canvas() {
       } else if (e.key === 'y' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         s.redo();
+      } else if (e.key === 'c' && (e.ctrlKey || e.metaKey)) {
+        s.copySelection();
+      } else if (e.key === 'v' && (e.ctrlKey || e.metaKey)) {
+        s.pasteClipboard();
+      } else if (e.key === 'd' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        s.duplicateSelection();
+      } else if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        s.selectAll();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -124,8 +138,19 @@ export function Canvas() {
     if (placing) {
       const pt = toCanvas(e.clientX, e.clientY);
       const def = PART_BY_ID[placing];
-      st().addPart(placing, Math.round(pt.x / CELL - def.w / 2), Math.round(pt.y / CELL - def.h / 2));
+      if (spliceHit) {
+        const place = splicePlacement(def, spliceHit);
+        st().spliceIntoWire(placing, spliceHit.connId, place.x, place.y, place.rot);
+      } else {
+        st().addPart(placing, Math.round(pt.x / CELL - def.w / 2), Math.round(pt.y / CELL - def.h / 2));
+      }
       if (!e.shiftKey) st().setPlacing(null);
+      return;
+    }
+    if (e.shiftKey) {
+      // shift+drag on empty canvas = marquee select (plain drag stays pan)
+      const pt = toCanvas(e.clientX, e.clientY);
+      setMarquee({ x0: pt.x, y0: pt.y, x1: pt.x, y1: pt.y });
       return;
     }
     st().select(null);
@@ -160,24 +185,44 @@ export function Canvas() {
     }
     const pt = toCanvas(e.clientX, e.clientY);
     setMouse(pt);
-    if (pan) {
+    if (marquee) {
+      setMarquee({ ...marquee, x1: pt.x, y1: pt.y });
+    } else if (pan) {
       setView({
         ...view,
         x: pan.vx - (e.clientX - pan.sx) / view.scale,
         y: pan.vy - (e.clientY - pan.sy) / view.scale,
       });
     } else if (drag) {
-      st().movePart(drag.id, Math.round((pt.x / CELL - drag.ox) * 2) / 2, Math.round((pt.y / CELL - drag.oy) * 2) / 2);
+      st().moveParts(drag.ids.map((id) => {
+        const o = drag.offsets[id];
+        return {
+          id,
+          x: Math.round((pt.x / CELL - o.ox) * 2) / 2,
+          y: Math.round((pt.y / CELL - o.oy) * 2) / 2,
+        };
+      }));
     }
   };
 
   const onUp = () => {
     setPan(null);
+    if (marquee) {
+      const rect = {
+        x: Math.min(marquee.x0, marquee.x1),
+        y: Math.min(marquee.y0, marquee.y1),
+        w: Math.abs(marquee.x1 - marquee.x0),
+        h: Math.abs(marquee.y1 - marquee.y0),
+      };
+      st().selectMany(partsInRect(st().system.parts, rect), true);
+      setMarquee(null);
+    }
     if (drag) {
-      // snap-connect: if a free port of the dragged part lands near a free compatible port
-      const s = st();
-      const inst = s.system.parts.find((p) => p.id === drag.id);
-      if (inst) trySnapConnect(inst);
+      // snap-connect only after single-part drags (a group snapping is chaos)
+      if (drag.ids.length === 1) {
+        const inst = st().system.parts.find((p) => p.id === drag.ids[0]);
+        if (inst) trySnapConnect(inst);
+      }
       setDrag(null);
     }
   };
@@ -211,6 +256,15 @@ export function Canvas() {
 
   const portIsUsed = (p: string, i: number) =>
     system.connections.some((c) => (c.a.part === p && c.a.port === i) || (c.b.part === p && c.b.port === i));
+
+  // splice-into-wire: while placing a 2-port part, offer nearby wires
+  const spliceHit = useMemo(() => {
+    if (!placing) return null;
+    const def = PART_BY_ID[placing];
+    if (!def || def.ports.length !== 2) return null;
+    const hit = hitTestWires(system, mouse, Math.max(6, 10 / view.scale));
+    return hit && !hitTooCloseToEnds(system, hit, def) ? hit : null;
+  }, [placing, system, mouse, view.scale]);
 
   const tooltipNode = hover ? compiled?.regionNode[`${hover.inst.id}:0`] ?? compiled?.portNode[`${hover.inst.id}:0`] : undefined;
   const tooltipP = tooltipNode ? nodePressures.get(tooltipNode) : undefined;
@@ -261,10 +315,12 @@ export function Canvas() {
             return (
               <g key={c.id}>
                 <path d={r.d} fill="none" stroke="#8f97a8" strokeWidth={5} opacity={0.85}
-                  strokeLinecap="round" strokeLinejoin="round" />
+                  strokeLinecap="round" strokeLinejoin="round"
+                  className={spliceHit?.connId === c.id ? 'splice-target' : undefined} />
                 <circle
                   cx={r.mid.x} cy={r.mid.y} r={5}
                   fill={c.mesh ? '#caa9ff' : '#8f97a8'}
+                  pointerEvents={placing ? 'none' : undefined}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -288,9 +344,20 @@ export function Canvas() {
                 className="part"
                 onPointerDown={(e) => {
                   e.stopPropagation();
-                  st().select(inst.id);
+                  if (e.shiftKey) {
+                    st().toggleSelect(inst.id);
+                    return;
+                  }
+                  const keepGroup = st().selection.includes(inst.id);
+                  if (!keepGroup) st().select(inst.id);
+                  const ids = keepGroup ? st().selection : [inst.id];
                   const pt = toCanvas(e.clientX, e.clientY);
-                  setDrag({ id: inst.id, ox: pt.x / CELL - inst.x, oy: pt.y / CELL - inst.y });
+                  const offsets: Record<string, { ox: number; oy: number }> = {};
+                  for (const id of ids) {
+                    const p = st().system.parts.find((q) => q.id === id);
+                    if (p) offsets[id] = { ox: pt.x / CELL - p.x, oy: pt.y / CELL - p.y };
+                  }
+                  setDrag({ ids: ids.filter((id) => offsets[id]), offsets });
                 }}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
@@ -307,7 +374,7 @@ export function Canvas() {
                 onPointerMove={(e) => setHover({ x: e.clientX, y: e.clientY, inst })}
                 onPointerLeave={() => setHover(null)}
               >
-                <PartSymbol inst={inst} selected={selection === inst.id} />
+                <PartSymbol inst={inst} selected={selection.includes(inst.id)} />
               </g>
             );
           })}
@@ -352,9 +419,23 @@ export function Canvas() {
             const A = portPos(inst, connectFrom.port);
             return <line x1={A.x} y1={A.y} x2={mouse.x} y2={mouse.y} stroke="#6ab0ff" strokeDasharray="5 4" strokeWidth={2} />;
           })()}
-          {/* ghost while placing */}
+          {/* ghost while placing (snaps onto a wire when splicing) */}
           {placing && (() => {
             const def = PART_BY_ID[placing];
+            if (spliceHit) {
+              const place = splicePlacement(def, spliceHit);
+              const [gw, gh] = place.rot % 180 === 0 ? [def.w, def.h] : [def.h, def.w];
+              const cx = (place.x + def.w / 2) * CELL;
+              const cy = (place.y + def.h / 2) * CELL;
+              return (
+                <rect
+                  x={cx - (gw * CELL) / 2} y={cy - (gh * CELL) / 2}
+                  width={gw * CELL} height={gh * CELL}
+                  fill="#7bd88f22" stroke="#7bd88f" strokeDasharray="4 4" rx={6}
+                  pointerEvents="none"
+                />
+              );
+            }
             return (
               <rect
                 x={(Math.round(mouse.x / CELL - def.w / 2)) * CELL}
@@ -365,6 +446,15 @@ export function Canvas() {
               />
             );
           })()}
+          {/* marquee select */}
+          {marquee && (
+            <rect
+              className="marquee"
+              x={Math.min(marquee.x0, marquee.x1)} y={Math.min(marquee.y0, marquee.y1)}
+              width={Math.abs(marquee.x1 - marquee.x0)} height={Math.abs(marquee.y1 - marquee.y0)}
+              pointerEvents="none"
+            />
+          )}
         </g>
       </svg>
       <Colorbar />

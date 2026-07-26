@@ -31,11 +31,19 @@ Load an example from the header dropdown (the scroll + turbo crossover is a good
 ## Building systems
 
 - Click a part in the palette, then click the canvas to place it (shift-click keeps placing).
+- **Splice**: while placing a 2-port part (valve, nipple, trap…), hover an existing wire — it highlights green and a click cuts the part into the line.
 - Click two ports to connect them (or drop a part so its port lands on a compatible one). Port tooltips show the flange standard; mismatched flanges still join with a warning — insert an **Adapter/reducer** part for a proper joint.
 - Click a joint dot to add a KF mesh-screen centering ring (×0.7 transmission); shift-click disconnects.
 - Select a part to edit its parameters; `R` rotates, `Delete` removes, `Ctrl+Z` undoes.
+- **Multi-select**: shift-click parts to toggle them in and out of the selection, or shift-drag on empty canvas for a marquee; drag any member to move the group. `Ctrl+A` selects all, `Ctrl+C`/`Ctrl+V` copy/paste (internal wiring included), `Ctrl+D` duplicates.
 - Elastomer-sealed joints automatically contribute their wetted Viton area (outgassing **and** He/H₂O permeation).
 - Tube physics follows the *length property*, not the drawn length.
+
+## Sharing & files
+
+- **🔗 Share** compresses the whole system into the URL (`#s=…`) and copies the link — no server, no account; opening the link restores the exact build.
+- Your current system autosaves to the browser (localStorage) and is restored on the next visit; **Save/Load JSON** remain for real files.
+- **SVG/PNG** export the schematic as a standalone image, colormap and labels included.
 
 ---
 
