@@ -46,6 +46,20 @@ export function Controls() {
       <button className="btn" onClick={() => st().tidyWiring()} title="reassign joints to equivalent ports for cleaner wiring">
         ⌗ Tidy
       </button>
+      <button
+        className="btn danger"
+        disabled={!simLoaded}
+        title="cut site power: pumps coast down, electronic gauges go dark"
+        onClick={() =>
+          st().liveAction(
+            useStore.getState().snapshot?.powerFailed
+              ? { type: 'powerRestore', pumpIds: 'all', gaugeIds: 'all' }
+              : { type: 'powerFail' },
+          )
+        }
+      >
+        {snapshot?.powerFailed ? '⚡ Restore power' : '⚡ Power fail'}
+      </button>
       <span className="sim-time">
         t = {snapshot ? formatSimTime(snapshot.t) : '—'}
         {snapshot?.steadyState && <em> (steady)</em>}

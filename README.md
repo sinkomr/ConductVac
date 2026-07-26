@@ -45,6 +45,13 @@ Load an example from the header dropdown (the scroll + turbo crossover is a good
 - **Gas flow tab** now opens with a per-chamber diagnosis: *conductance-limited* (names the worst-drop element and its pressure ratio), *pump-limited*, *gas-load-limited* or *leak-limited*, with one-click culprit highlighting on the schematic. Permeation is split from outgassing in the Sankey.
 - Capture pumps (cryo, NEG, sorption, LN₂ traps) show **capacity fill bars** on their symbols and per-species sorbed inventory in the inspector.
 
+## Temperature & failure drills
+
+- **Every part has a live temperature**: select a chamber/tube/payload and set a setpoint (heats with τ ≈ 10 min, cools slower). Sealed volumes obey the gas law (p ∝ T exactly), molecular conductance scales √T, and outgassing follows ×10 per 60 °C — *bake* is now just "set 150 °C": hold it long enough (≈ 17 h-equivalent at 150 °C) and the surfaces flip to baked on their own. Script it with the *set temperature* action; the old bake events still work.
+- **Gauges on hot zones lie**: ionization and thermal gauges under-read by √(T₀/T) in the molecular regime (thermal transpiration).
+- **⚡ Power fail**: one button cuts the site — pumps coast down on their real time constants (a coasting turbo's compression collapses as K₀^spin, so the foreline floods back through it), electronic gauges go dark (the bourdon survives), and restoring power replays the consequences: cold cathodes re-strike, hot cathodes trip if the pressure ran away, ion pumps refuse above their start limit. Scriptable with optional auto-restore.
+- **Warming cryo surfaces re-release their ice**: switch off a cryopump or LN₂ trap and its sorbed inventory comes back as a pressure spike (mass-balanced), species by species as the head crosses each release temperature.
+
 ## Sharing & files
 
 - **🔗 Share** compresses the whole system into the URL (`#s=…`) and copies the link — no server, no account; opening the link restores the exact build.

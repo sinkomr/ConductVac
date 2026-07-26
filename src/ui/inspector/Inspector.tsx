@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import { PART_BY_ID } from '../../data/fittings';
 import { MATERIALS } from '../../data/materials';
-import { formatPressure, nodePartials, nodePressures, selectedOne, useStore } from '../../store';
+import { formatPressure, nodePartials, nodePressures, nodeTemps, selectedOne, useStore } from '../../store';
+
+const TEMP_KINDS = ['chamber', 'tube', 'flex', 'bellows', 'tee', 'cross', 'payload'];
 
 export function Inspector() {
   const selection = useStore((s) => s.selection);
@@ -140,6 +143,7 @@ export function Inspector() {
       )}
       {def.kind === 'leakdetector' && <LeakDetectorReadout partId={inst.id} />}
       {(def.kind === 'pump' || def.kind.startsWith('coldtrap')) && <CapacityReadout partId={inst.id} />}
+      {TEMP_KINDS.includes(def.kind) && <TemperatureBlock partId={inst.id} />}
       <div className="btn-row">
         <button className="btn" onClick={() => rotatePart(inst.id)}>Rotate (R)</button>
         <button className="btn danger" onClick={() => deletePart(inst.id)}>Delete</button>
@@ -151,6 +155,42 @@ export function Inspector() {
         </details>
       )}
     </aside>
+  );
+}
+
+function TemperatureBlock({ partId }: { partId: string }) {
+  const compiled = useStore((s) => s.compiled);
+  const simLoaded = useStore((s) => s.simLoaded);
+  const liveAction = useStore((s) => s.liveAction);
+  useStore((s) => s.chartTick);
+  const [setpoint, setSetpoint] = useState(150);
+  const node = compiled?.regionNode[`${partId}:0`] ?? compiled?.portNode[`${partId}:0`];
+  const tc = node ? nodeTemps.get(node) : undefined;
+  if (!simLoaded) return null;
+  return (
+    <div className="temp-block">
+      <div className="prop-row">
+        <span>temperature</span>
+        <b>{tc !== undefined ? `${tc.toFixed(tc >= 100 ? 0 : 1)} °C` : '—'}</b>
+      </div>
+      <div className="prop-row">
+        <span>setpoint</span>
+        <span>
+          <input
+            type="number" min={-40} max={450} step={5} value={setpoint}
+            style={{ width: 64 }}
+            onChange={(e) => setSetpoint(Number(e.target.value))}
+          />
+          <button
+            className="btn" style={{ marginLeft: 6 }}
+            onClick={() => liveAction({ type: 'setTemperature', nodeIds: [partId], temperatureC: setpoint })}
+          >
+            Apply
+          </button>
+        </span>
+      </div>
+      <div className="hint">Heats with τ≈10 min, cools slower. Outgassing follows ×10 per 60 °C; enough hot hours flip the surfaces to baked.</div>
+    </div>
   );
 }
 

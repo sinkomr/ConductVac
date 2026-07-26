@@ -4,6 +4,10 @@ import type {
 import { buildNetwork, type Net } from './network';
 import { BandMatrix } from './lin';
 import { compileConductance } from './conductance';
+import {
+  BAKE_DOSE_MIN_C, BAKE_DOSE_REF_C, BAKE_DOSE_TARGET, T0K, TAU_COOL, TAU_HEAT, rampTo,
+} from './thermal';
+import { MATERIALS } from '../data/materials';
 
 /**
  * Numerical core (§1.6) — backward Euler with Newton iteration, integrating
@@ -127,6 +131,13 @@ export class Sim {
   private readonly pumpsAtBacking: number[][];
   private readonly qPumpWork: Float64Array;
   private readonly pumpPartials: Float64Array;
+  // per-node thermal terms for the attempted step (exact ramp to tEnd)
+  private readonly tempEnd: Float64Array;
+  private readonly dlnT: Float64Array;
+  private readonly tRelEdge: Float64Array;
+  private readonly relRates: Float64Array;
+  /** pumps/gauges knocked out by a power failure (null = power on) */
+  powerLatch: { pumpIds: string[]; gaugeIds: string[] } | null = null;
 
   constructor(spec: EngineSystemSpec, opts?: Partial<SolverOptions>) {
     this.net = buildNetwork(spec);
@@ -149,6 +160,10 @@ export class Sim {
     this.pWork = new Float64Array(this.nN);
     this.qPumpWork = new Float64Array(this.nS);
     this.pumpPartials = new Float64Array(this.nS);
+    this.tempEnd = new Float64Array(this.nN);
+    this.dlnT = new Float64Array(this.nN);
+    this.tRelEdge = new Float64Array(net.edges.length);
+    this.relRates = new Float64Array(this.nS);
 
     this.pumpsAtInlet = net.nodes.map(() => []);
     this.pumpsAtBacking = net.nodes.map(() => []);
@@ -257,6 +272,7 @@ export class Sim {
             s.bakingAtC = a.temperatureC;
           }
         }
+        this.setNodeTemps(ids, a.temperatureC, undefined);
         this.emit([{ t: this.t, severity: 'info', message: `Bake started at ${a.temperatureC} °C` }]);
         break;
       }
@@ -267,7 +283,57 @@ export class Sim {
             if (s.bakingAtC !== null) s.completeBake();
           }
         }
+        this.setNodeTemps(ids, 20, undefined);
         this.emit([{ t: this.t, severity: 'info', message: 'Bake complete' }]);
+        break;
+      }
+      case 'setTemperature': {
+        const n = this.setNodeTemps(a.nodeIds, a.temperatureC, a.tauOverride);
+        this.emit([{
+          t: this.t, severity: 'info',
+          message: `Temperature setpoint ${a.temperatureC} °C on ${n} node(s)`,
+        }]);
+        break;
+      }
+      case 'powerFail': {
+        if (this.powerLatch) break; // already dark
+        const pumpIds: string[] = [];
+        const gaugeIds: string[] = [];
+        for (const pm of net.pumps) {
+          if (pm.on) {
+            pumpIds.push(pm.spec.id);
+            this.emit(pm.setOn(false, this.totalAt(pm.nodeIdx), this.t));
+          }
+        }
+        for (const gg of net.gauges) {
+          // bourdon tubes are mechanical and survive; everything electronic dies
+          if (gg.enabled && gg.spec.type !== 'bourdon') {
+            gaugeIds.push(gg.spec.id);
+            this.emit(gg.setEnabled(false, this.totalAt(gg.nodeIdx), this.t));
+          }
+        }
+        this.powerLatch = { pumpIds, gaugeIds };
+        this.emit([{ t: this.t, severity: 'error', message: 'POWER FAILURE — pumps coasting, gauges dark' }]);
+        if (a.restoreAfter && a.restoreAfter > 0) {
+          this.events.push({ t: this.t + a.restoreAfter, action: { type: 'powerRestore', pumpIds: 'all', gaugeIds: 'all' } });
+          this.events.sort((x, y) => x.t - y.t);
+        }
+        break;
+      }
+      case 'powerRestore': {
+        const latch = this.powerLatch;
+        const pumpIds = a.pumpIds === 'all' ? latch?.pumpIds ?? [] : a.pumpIds;
+        const gaugeIds = a.gaugeIds === 'all' ? latch?.gaugeIds ?? [] : a.gaugeIds;
+        this.emit([{ t: this.t, severity: 'info', message: 'Power restored' }]);
+        for (const id of pumpIds) {
+          const pm = net.pumps.find((x) => x.spec.id === id);
+          if (pm) this.emit(pm.setOn(true, this.totalAt(pm.nodeIdx), this.t));
+        }
+        for (const id of gaugeIds) {
+          const gg = net.gauges.find((x) => x.spec.id === id);
+          if (gg) this.emit(gg.setEnabled(true, this.totalAt(gg.nodeIdx), this.t));
+        }
+        this.powerLatch = null;
         break;
       }
       case 'heSpray': {
@@ -297,6 +363,20 @@ export class Sim {
   }
 
   // ------------------------------------------------------------ helpers ----
+
+  /** set temperature targets on matching free nodes; returns how many matched */
+  private setNodeTemps(ids: string[] | 'all', temperatureC: number, tauOverride?: number): number {
+    const targetK = temperatureC + 273.15;
+    let n = 0;
+    for (const node of this.net.nodes) {
+      if (node.fixed) continue;
+      if (ids !== 'all' && !ids.includes(node.id)) continue;
+      node.tempTargetK = targetK;
+      node.tauT = tauOverride ?? (targetK > node.tempK ? TAU_HEAT : TAU_COOL);
+      n++;
+    }
+    return n;
+  }
 
   totalAt(nodeIdx: number): number {
     let s = 0;
@@ -343,9 +423,27 @@ export class Sim {
     // node totals
     for (let i = 0; i < nN; i++) this.pTotWork[i] = this.totalAt(i);
 
+    // temperatures: exact first-order ramp to the end of the attempted step;
+    // the gas balance picks up Δu = ln(T_end/T_start) (isochoric ideal gas),
+    // exactly 0 while everything sits at ambient
+    const dtT = Math.max(0, tEnd - this.t);
+    for (let i = 0; i < nN; i++) {
+      const node = net.nodes[i];
+      if (node.fixed || node.tempK === node.tempTargetK) {
+        this.tempEnd[i] = node.tempK;
+        this.dlnT[i] = 0;
+      } else {
+        const Tend = rampTo(node.tempK, node.tempTargetK, dtT, node.tauT);
+        this.tempEnd[i] = Tend;
+        this.dlnT[i] = Math.log(Tend / node.tempK);
+      }
+    }
+
     // edges
     for (let e = 0; e < net.edges.length; e++) {
       const edge = net.edges[e];
+      const tRel = 0.5 * (this.tempEnd[edge.a] + this.tempEnd[edge.b]) / T0K;
+      this.tRelEdge[e] = tRel;
       let open = edge.open;
       let scale = edge.meshFactor;
       if (edge.pumpInternal) {
@@ -359,7 +457,7 @@ export class Sim {
       // mean pressure across the edge; He-spray overrides only change composition, not total
       const pMean = 0.5 * (this.pTotWork[edge.a] + this.pTotWork[edge.b]);
       for (let g = 0; g < nS; g++) {
-        this.edgeC[e * nS + g] = scale * edge.model.cOf(g, pMean, open);
+        this.edgeC[e * nS + g] = scale * edge.model.cOf(g, pMean, open, tRel);
       }
     }
 
@@ -371,13 +469,20 @@ export class Sim {
       pm.freeze(pIn, pBack, this.pumpPartials);
     }
 
-    // sources (outgassing + permeation) at end time
+    // sources (outgassing + permeation, at the node temperature) at end time
     this.qSrc.fill(0);
     const tmp = new Float64Array(nS);
     for (const s of net.surfaces) {
       tmp.fill(0);
-      s.addLoads(tEnd, net.species, net.humidityRH, tmp);
+      s.addLoads(tEnd, net.species, net.humidityRH, tmp, undefined, this.tempEnd[s.nodeIdx] - 273.15);
       for (let g = 0; g < nS; g++) this.qSrc[g * nN + s.nodeIdx] += tmp[g];
+    }
+
+    // warming cryo cold heads re-emit their sorbed inventory
+    for (const pm of net.pumps) {
+      if (pm.releaseRates(this.relRates)) {
+        for (let g = 0; g < nS; g++) this.qSrc[g * nN + pm.nodeIdx] += this.relRates[g];
+      }
     }
   }
 
@@ -407,7 +512,7 @@ export class Sim {
       if (open <= 0 || scale <= 0) continue;
       const pMean = 0.5 * (this.pTotWork[edge.a] + this.pTotWork[edge.b]);
       for (let g = 0; g < nS; g++) {
-        this.edgeC[e * nS + g] = scale * edge.model.cOf(g, pMean, open);
+        this.edgeC[e * nS + g] = scale * edge.model.cOf(g, pMean, open, this.tRelEdge[e]);
       }
     }
     for (const pm of net.pumps) {
@@ -502,7 +607,7 @@ export class Sim {
         }
 
         const gfac = dt / (V * pi);
-        rhs[e] = -(this.uWork[i] - this.u[off + i] - gfac * R);
+        rhs[e] = -(this.uWork[i] - this.u[off + i] - gfac * R - this.dlnT[i]);
         band.add(e, e, 1 - gfac * dRdui + gfac * R);
       }
 
@@ -691,11 +796,35 @@ export class Sim {
       }
     }
 
-    // exposure clocks: node above 100 Torr keeps its surfaces "vented"
+    // commit node temperatures for the accepted step
+    for (let i = 0; i < nN; i++) {
+      if (!net.nodes[i].fixed) net.nodes[i].tempK = this.tempEnd[i];
+    }
+
+    // exposure clocks: node above 100 Torr keeps its surfaces "vented";
+    // integrated thermal dose flips `baked` (16.7 h-equivalent at 150 °C)
     for (const s of net.surfaces) {
       if (this.pTotWork[s.nodeIdx] > 100 || this.totalAt(s.nodeIdx) > 100) {
         s.exposureStart = this.t;
       }
+      if (!s.baked) {
+        const tc = this.tempEnd[s.nodeIdx] - 273.15;
+        if (tc >= BAKE_DOSE_MIN_C) {
+          s.bakeDose += Math.pow(10, (tc - BAKE_DOSE_REF_C) / 60) * dt;
+          if (s.bakeDose >= BAKE_DOSE_TARGET && MATERIALS[s.material].bakeable) {
+            s.baked = true;
+            this.emit([{
+              t: this.t, severity: 'info',
+              message: `${net.nodes[s.nodeIdx].label}: surfaces baked out (thermal dose reached)`,
+            }]);
+          }
+        }
+      }
+    }
+
+    // drain sorbed inventory released by warming cryo heads (rates as frozen)
+    for (const pm of net.pumps) {
+      if (pm.releaseRates(this.relRates)) pm.drainCapacity(this.relRates, dt);
     }
 
     // pumps: throughput at accepted state, then state advance
@@ -709,9 +838,9 @@ export class Sim {
       this.emit(pm.advance(dt, this.t, pIn, this.qPumpWork));
     }
 
-    // gauges
+    // gauges (at their node's temperature — thermal transpiration)
     for (const gg of net.gauges) {
-      this.emit(gg.advance(dt, this.t, this.partialsAt(gg.nodeIdx)));
+      this.emit(gg.advance(dt, this.t, this.partialsAt(gg.nodeIdx), net.nodes[gg.nodeIdx].tempK));
     }
 
     this.onSample?.(this.t, this);
@@ -783,6 +912,7 @@ export class Sim {
         id: n.id,
         pTotal: this.totalAt(i),
         partials: Array.from({ length: nS }, (_, g) => this.p[g * nN + i]),
+        tempC: n.tempK - 273.15,
       })),
       gauges: net.gauges.map((gg) => gg.reading(this.partialsAt(gg.nodeIdx))),
       valves: net.edges
@@ -813,6 +943,7 @@ export class Sim {
         };
       }),
       steadyState: this.lastRate < this.opts.steadyTol,
+      powerFailed: this.powerLatch !== null,
     };
   }
 }

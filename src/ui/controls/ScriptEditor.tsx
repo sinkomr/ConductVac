@@ -19,6 +19,9 @@ const ACTION_KINDS: { value: ActionKind; label: string }[] = [
   { value: 'heSpray', label: 'spray He' },
   { value: 'setLeak', label: 'set leak rate' },
   { value: 'regenerate', label: 'regenerate pump' },
+  { value: 'setTemperature', label: 'set temperature' },
+  { value: 'powerFail', label: 'power failure' },
+  { value: 'powerRestore', label: 'restore power' },
 ];
 
 function defaultAction(kind: ActionKind, firstOf: (k: string[]) => string): SimEventAction {
@@ -32,6 +35,9 @@ function defaultAction(kind: ActionKind, firstOf: (k: string[]) => string): SimE
     case 'heSpray': return { type: 'heSpray', leakId: firstOf(['leak']), dwell: 5 };
     case 'setLeak': return { type: 'setLeak', leakId: firstOf(['leak']), qStd: 1e-6 };
     case 'regenerate': return { type: 'regenerate', pumpId: firstOf(['pump']) };
+    case 'setTemperature': return { type: 'setTemperature', nodeIds: 'all', temperatureC: 120 };
+    case 'powerFail': return { type: 'powerFail' };
+    case 'powerRestore': return { type: 'powerRestore', pumpIds: 'all', gaugeIds: 'all' };
   }
 }
 
@@ -200,6 +206,49 @@ function Row({ row, partsOf, firstOf }: {
           <span>Torr·L/s</span>
         </>
       );
+      break;
+    case 'setTemperature': {
+      const target = a.nodeIds === 'all' ? 'all' : a.nodeIds[0] ?? 'all';
+      detail = (
+        <>
+          <select
+            value={target}
+            onChange={(e) =>
+              updAction({ ...a, nodeIds: e.target.value === 'all' ? 'all' : [e.target.value] })
+            }
+          >
+            <option value="all">everything</option>
+            {partsOf(['chamber', 'payload', 'tube', 'flex', 'tee', 'cross']).map((p) => (
+              <option key={p.id} value={p.id}>{p.id}</option>
+            ))}
+          </select>
+          <span>to</span>
+          <input
+            type="number" value={a.temperatureC} min={-40} max={450} step={5}
+            onChange={(e) => updAction({ ...a, temperatureC: Number(e.target.value) })}
+          />
+          <span>°C</span>
+        </>
+      );
+      break;
+    }
+    case 'powerFail':
+      detail = (
+        <>
+          <span>restore after</span>
+          <input
+            type="number" value={a.restoreAfter ?? 0} min={0} step={10}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              updAction({ type: 'powerFail', ...(v > 0 ? { restoreAfter: v } : {}) });
+            }}
+          />
+          <span>s (0 = never)</span>
+        </>
+      );
+      break;
+    case 'powerRestore':
+      detail = <span>bring back everything the outage took down</span>;
       break;
   }
 

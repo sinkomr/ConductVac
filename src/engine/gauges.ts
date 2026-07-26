@@ -114,8 +114,8 @@ export class GaugeRuntime {
     }
   }
 
-  /** advance internal state one accepted solver step */
-  advance(dt: number, t: number, partials: Float64Array): EventLogEntry[] {
+  /** advance internal state one accepted solver step; tempK = gauge-node temperature */
+  advance(dt: number, t: number, partials: Float64Array, tempK = 293.15): EventLogEntry[] {
     const logs: EventLogEntry[] = [];
     const type = this.spec.type;
     const specE = GAUGE_SPECS[type];
@@ -135,7 +135,7 @@ export class GaugeRuntime {
       logs.push({ t, severity: 'error', message: `${this.label}: filament tripped (p ${pTot.toExponential(1)} > 1e-4 Torr)` });
     }
 
-    const ideal = this.idealValue(partials, pTot);
+    const ideal = this.idealValue(partials, pTot) * this.transpiration(pTot, tempK);
     if (Number.isFinite(ideal)) {
       if (!Number.isFinite(this.filtered)) this.filtered = ideal;
       const a = 1 - Math.exp(-dt / specE.tau);
@@ -144,6 +144,21 @@ export class GaugeRuntime {
       this.filtered = NaN;
     }
     return logs;
+  }
+
+  /**
+   * Thermal-transpiration factor: a gauge on a hot zone under-reads in the
+   * molecular regime (the network's C·Δp flow form equilibrates pressures,
+   * not the free-molecular p/√T invariant, so this is honestly an
+   * instrument-side correction — see fidelity notes). Force-based gauges
+   * (bourdon, capacitance) are exempt; blend keyed on total pressure like
+   * the Knudsen interpolation for a ~KF16 port.
+   */
+  private transpiration(pTot: number, tempK: number): number {
+    const type = this.spec.type;
+    if (type === 'bourdon' || type === 'capacitance' || tempK === 293.15) return 1;
+    const w = 1 / (1 + 160 * pTot);
+    return 1 + (Math.sqrt(293.15 / tempK) - 1) * w;
   }
 
   /** noiseless instrument response before lag/noise */

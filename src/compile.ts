@@ -558,7 +558,8 @@ export function translateAction(a: SimEventAction, c: CompiledSystem): SimEventA
     case 'setLeak':
       return { ...a, leakId: c.leakId[(a as { leakId: string }).leakId] ?? (a as { leakId: string }).leakId } as SimEventAction;
     case 'bakeStart':
-    case 'bakeEnd': {
+    case 'bakeEnd':
+    case 'setTemperature': {
       // UI-level targets are PART ids; the engine wants (post-merge) node ids
       if (a.nodeIds === 'all') return a;
       const nodeIds = a.nodeIds

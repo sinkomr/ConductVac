@@ -273,7 +273,12 @@ export type SimEventAction =
   | { type: 'bakeStart'; nodeIds: string[] | 'all'; temperatureC: number }
   | { type: 'bakeEnd'; nodeIds: string[] | 'all' }
   | { type: 'heSpray'; leakId: string; dwell: number }
-  | { type: 'setLeak'; leakId: string; qStd: number };
+  | { type: 'setLeak'; leakId: string; qStd: number }
+  /** ramp matching nodes toward a temperature setpoint (°C); bake events are sugar over this */
+  | { type: 'setTemperature'; nodeIds: string[] | 'all'; temperatureC: number; tauOverride?: number }
+  /** site power cut: every running pump coasts, electronic gauges go dark; optional self-restore */
+  | { type: 'powerFail'; restoreAfter?: number }
+  | { type: 'powerRestore'; pumpIds: string[] | 'all'; gaugeIds: string[] | 'all' };
 
 export interface SimEvent {
   t: number; // sim time, s
@@ -345,6 +350,8 @@ export interface NodeSnapshot {
   id: string;
   pTotal: number;
   partials: number[]; // indexed like species[]
+  /** live node temperature, °C */
+  tempC: number;
 }
 
 export interface SimSnapshot {
@@ -369,4 +376,6 @@ export interface SimSnapshot {
     capacityUsed: number[];
   }[];
   steadyState: boolean;
+  /** a power failure is in effect (pumps coasting, gauges dark) */
+  powerFailed: boolean;
 }

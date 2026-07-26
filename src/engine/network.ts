@@ -7,6 +7,7 @@ import { atmosphereComposition } from '../data/gases';
 import { compileConductance, type EdgeConductanceModel } from './conductance';
 import { PumpRuntime } from './pumps';
 import { SurfaceRuntime } from './loads';
+import { T0K, TAU_HEAT } from './thermal';
 import { GaugeRuntime } from './gauges';
 import { rcmOrder } from './lin';
 
@@ -27,6 +28,11 @@ export interface NodeRuntime {
   /** fixed partial pressures (boundary node) or null */
   fixed: Float64Array | null;
   initial: Float64Array;
+  /** live temperature, K (boundary nodes never ramp) */
+  tempK: number;
+  tempTargetK: number;
+  /** ramp time constant toward the target, s */
+  tauT: number;
 }
 
 export interface EdgeRuntime {
@@ -102,6 +108,9 @@ export function buildNetwork(spec: EngineSystemSpec): Net {
       volume: Math.max(n.volume, 1e-6),
       fixed,
       initial,
+      tempK: T0K,
+      tempTargetK: T0K,
+      tauT: TAU_HEAT,
     });
     nodeIndex.set(n.id, idx);
     return idx;
