@@ -6,6 +6,7 @@ import { PartSymbol } from './PartSymbol';
 import { Colorbar } from '../colormap/Colorbar';
 import { CELL, portDir, portPos } from './geometry';
 import { routeWire } from './route';
+import { canvasSvg } from './exportSvg';
 
 interface Hover {
   x: number;
@@ -35,6 +36,14 @@ export function Canvas() {
   // touch pinch-zoom state: active pointers + gesture baseline
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<null | { d0: number; scale0: number; wx: number; wy: number }>(null);
+
+  // expose the live SVG element for schematic export
+  useEffect(() => {
+    canvasSvg.el = svgRef.current;
+    return () => {
+      if (canvasSvg.el === svgRef.current) canvasSvg.el = null;
+    };
+  }, []);
 
   // fit the whole system into view (on load, on the Fit button, on mount)
   useEffect(() => {

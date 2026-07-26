@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Palette } from './builder/Palette';
 import { Canvas } from './builder/Canvas';
 import { Inspector } from './inspector/Inspector';
@@ -10,7 +10,12 @@ import { Sankey } from './sankey/Sankey';
 import { SpeciesPanel } from './SpeciesPanel';
 import { useStore, type PressureUnit } from '../store';
 import { EXAMPLES } from '../examples';
+import { encodeSystem } from '../share';
+import { downloadBlob } from './download';
+import { exportSchematicPng, exportSchematicSvg } from './builder/exportSvg';
 import type { SystemDefinition } from '../types';
+
+const fileStem = (name: string) => name.replace(/\s+/g, '-').toLowerCase() || 'system';
 
 export function App() {
   const system = useStore((s) => s.system);
@@ -18,15 +23,39 @@ export function App() {
   const unit = useStore((s) => s.unit);
   const st = useStore.getState;
   const fileRef = useRef<HTMLInputElement>(null);
+  const [shared, setShared] = useState(false);
 
   const save = () => {
-    const blob = new Blob([JSON.stringify(system, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${system.name.replace(/\s+/g, '-').toLowerCase() || 'system'}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(
+      new Blob([JSON.stringify(system, null, 2)], { type: 'application/json' }),
+      `${fileStem(system.name)}.json`,
+    );
+  };
+
+  const share = async () => {
+    const payload = await encodeSystem(system);
+    const url = `${location.origin}${location.pathname}${location.search}#${payload}`;
+    if (payload.length > 8192) {
+      alert('This system is unusually large — the share link may not paste everywhere.');
+    }
+    // the address bar itself becomes shareable, clipboard is the convenience
+    history.replaceState(null, '', `#${payload}`);
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      window.prompt('Copy this link:', url);
+    }
+    setShared(true);
+    setTimeout(() => setShared(false), 1500);
+  };
+
+  const exportSvg = () => {
+    const blob = exportSchematicSvg(system);
+    if (blob) downloadBlob(blob, `${fileStem(system.name)}.svg`);
+  };
+  const exportPng = async () => {
+    const blob = await exportSchematicPng(system);
+    if (blob) downloadBlob(blob, `${fileStem(system.name)}.png`);
   };
 
   const load = (file: File) => {
@@ -73,6 +102,11 @@ export function App() {
         <button className="btn" onClick={() => st().newSystem()}>New</button>
         <button className="btn" onClick={save}>Save JSON</button>
         <button className="btn" onClick={() => fileRef.current?.click()}>Load JSON</button>
+        <button className="btn" onClick={share} title="copy a link that opens this exact system">
+          {shared ? 'Copied ✓' : '🔗 Share'}
+        </button>
+        <button className="btn" onClick={exportSvg} title="download the schematic as SVG">SVG</button>
+        <button className="btn" onClick={exportPng} title="download the schematic as PNG">PNG</button>
         <input
           ref={fileRef} type="file" accept=".json" style={{ display: 'none' }}
           onChange={(e) => e.target.files?.[0] && load(e.target.files[0])}
