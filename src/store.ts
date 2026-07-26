@@ -135,7 +135,9 @@ interface AppState {
   paletteOpen: boolean;
   /** bump to ask the canvas to fit the system into view */
   fitTick: number;
-  bottomTab: 'charts' | 'flow' | 'species' | 'script' | 'log';
+  /** part ids tinted as bottleneck culprits (diagnosis highlight) */
+  highlightParts: string[] | null;
+  bottomTab: 'charts' | 'flow' | 'species' | 'script' | 'log' | 'rga';
 
   // builder actions
   setPlacing(defId: string | null): void;
@@ -191,6 +193,7 @@ interface AppState {
   setPaletteOpen(v: boolean): void;
   requestFit(): void;
   setBottomTab(t: AppState['bottomTab']): void;
+  setHighlightParts(ids: string[] | null): void;
 }
 
 // undo stack outside the store
@@ -309,6 +312,7 @@ export const useStore = create<AppState>((set, get) => ({
   showValues: false,
   paletteOpen: false,
   fitTick: 0,
+  highlightParts: null,
   bottomTab: 'charts',
 
   setPlacing: (defId) => set({ placing: defId, connectFrom: null, paletteOpen: false }),
@@ -660,7 +664,17 @@ export const useStore = create<AppState>((set, get) => ({
     if (translated) send({ type: 'action', action: translated });
   },
 
-  requestFlows: () => send({ type: 'flows' }),
+  requestFlows: () => {
+    const st = get();
+    // focus the diagnosis on the user's chambers (post-merge engine node ids)
+    const focus = st.compiled
+      ? st.system.parts
+          .filter((p) => PART_BY_ID[p.def]?.kind === 'chamber')
+          .map((p) => st.compiled!.regionNode[`${p.id}:0`])
+          .filter((n): n is string => !!n)
+      : undefined;
+    send({ type: 'flows', focus });
+  },
 
   setUnit: (u) => set({ unit: u }),
   setTruthOverlay: (v) => set({ truthOverlay: v }),
@@ -669,4 +683,5 @@ export const useStore = create<AppState>((set, get) => ({
   setPaletteOpen: (v) => set({ paletteOpen: v }),
   requestFit: () => set({ fitTick: get().fitTick + 1 }),
   setBottomTab: (t) => set({ bottomTab: t }),
+  setHighlightParts: (ids) => set({ highlightParts: ids }),
 }));

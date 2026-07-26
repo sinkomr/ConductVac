@@ -363,6 +363,10 @@ export interface SimSnapshot {
     spinFraction: number;
     /** He throughput at the inlet, Torr·L/s (leak-detector readout) */
     qHelium: number;
+    /** capture-pump fill 0..1 (worst species for cryo), null for throughput pumps */
+    capacityFrac: number | null;
+    /** Torr·L sorbed per species (species order), capture pumps only */
+    capacityUsed: number[];
   }[];
   steadyState: boolean;
 }

@@ -37,6 +37,22 @@ function livePumpOn(instId: string, kind: string): boolean | undefined {
   return st.snapshot?.pumps.find((p) => p.id === pid)?.on;
 }
 
+function livePumpCapacity(instId: string): number | null {
+  return useStore.getState().snapshot?.pumps.find((p) => p.id === instId)?.capacityFrac ?? null;
+}
+
+/** small fill bar for capture-pump saturation */
+function capBar(cx: number, y: number, frac: number): JSX.Element {
+  const f = Math.min(1, frac);
+  const color = f >= 1 ? '#ff7070' : f > 0.8 ? '#ffb14e' : '#7bd88f';
+  return (
+    <g>
+      <rect x={cx - 8} y={y} width={16} height={3.5} fill="#14161b" stroke="#4a4f5a" strokeWidth={0.5} />
+      <rect x={cx - 8} y={y} width={16 * f} height={3.5} fill={color} />
+    </g>
+  );
+}
+
 const STROKE = '#c8cdd8';
 
 export const PartSymbol = memo(function PartSymbol({ inst, selected }: { inst: PartInstance; selected: boolean }) {
@@ -157,11 +173,13 @@ export const PartSymbol = memo(function PartSymbol({ inst, selected }: { inst: P
       break;
     }
     case 'pump': {
+      const cap = livePumpCapacity(inst.id);
       body = (
         <g>
           <circle cx={w / 2} cy={h / 2} r={w / 2 - 5} fill={fill(inst.id, 0)} {...sel} />
           <path d={`M${w / 2 - 13} ${h / 2 + 12} L${w / 2} ${h / 2 - 15} L${w / 2 + 13} ${h / 2 + 12} Z`}
             fill={pumpOn ? '#e8f0ff' : '#666c78'} stroke="none" opacity={0.9} />
+          {cap !== null && capBar(w / 2, h - 10, cap)}
         </g>
       );
       break;
@@ -173,6 +191,16 @@ export const PartSymbol = memo(function PartSymbol({ inst, selected }: { inst: P
           <text x={w / 2} y={h / 2} textAnchor="middle" className="tiny">
             {String(def.data.gaugeType).slice(0, 2).toUpperCase()}
           </text>
+        </g>
+      );
+      break;
+    }
+    case 'rga': {
+      body = (
+        <g>
+          <rect x={w / 2 - 11} y={h / 2 - 12} width={22} height={18} rx={4} fill={fill(inst.id, 0)} {...sel} />
+          <path d={`M${w / 2 - 7} ${h / 2 + 2} v-6 M${w / 2 - 2} ${h / 2 + 2} v-10 M${w / 2 + 3} ${h / 2 + 2} v-4 M${w / 2 + 7} ${h / 2 + 2} v-8`}
+            stroke="#e8ecf3" strokeWidth={1.6} />
         </g>
       );
       break;
@@ -212,11 +240,13 @@ export const PartSymbol = memo(function PartSymbol({ inst, selected }: { inst: P
       break;
     case 'coldtrap-meissner': {
       const on = livePumpOn(inst.id, def.kind) ?? Boolean(inst.params.on);
+      const cap = livePumpCapacity(inst.id);
       body = (
         <g>
           <rect x={4} y={h / 2 - 9} width={w - 8} height={18} rx={9} fill={fill(inst.id, 0)} {...sel} />
           <path d={`M10 ${h / 2} q6 -7 12 0 t12 0 t12 0`} fill="none"
             stroke={on ? '#9fd7ff' : '#666c78'} strokeWidth={2.2} />
+          {cap !== null && cap > 0.005 && capBar(w / 2, h / 2 + 11, cap)}
         </g>
       );
       break;

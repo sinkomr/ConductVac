@@ -187,6 +187,24 @@ body {
 .values-toggle { display: flex; gap: 5px; align-items: center; color: #9aa2b1; margin-left: 6px; }
 
 .marquee { fill: #6ab0ff18; stroke: #6ab0ff; stroke-dasharray: 5 4; stroke-width: 1.5; }
+.part.culprit { filter: drop-shadow(0 0 6px #ff7070) drop-shadow(0 0 2px #ff7070); }
+
+.diag-section { margin-bottom: 10px; }
+.diag-card {
+  background: #20242c; border-left: 3px solid #6ab0ff; border-radius: 6px;
+  padding: 6px 10px; margin-bottom: 6px; font-size: 12.5px;
+}
+.diag-card em { font-style: normal; color: #9fd7ff; font-weight: 600; }
+.diag-conductance { border-left-color: #ffb14e; }
+.diag-conductance em { color: #ffb14e; }
+.diag-pump { border-left-color: #ff7070; }
+.diag-pump em { color: #ff7070; }
+.diag-leak { border-left-color: #ff7070; }
+.diag-leak em { color: #ff7070; }
+.diag-load { border-left-color: #7bd88f; }
+.diag-load em { color: #7bd88f; }
+.diag-chip { margin-left: 8px; padding: 1px 8px; font-size: 11.5px; }
+.rga-plot { display: block; background: #16181d; border-radius: 6px; }
 .splice-target { stroke: #7bd88f; stroke-width: 7; }
 
 /* ------------------------------------------------------------- mobile ---- */

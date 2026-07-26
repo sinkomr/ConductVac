@@ -16,7 +16,7 @@ export type WorkerCmd =
   | { type: 'speed'; value: number }
   | { type: 'action'; action: SimEventAction }
   | { type: 'ff' }
-  | { type: 'flows' };
+  | { type: 'flows'; focus?: string[] };
 
 export interface ChartSample {
   t: number;
@@ -156,7 +156,7 @@ self.onmessage = (ev: MessageEvent<WorkerCmd>) => {
         break;
       }
       case 'flows':
-        if (sim) post({ type: 'flows', report: computeFlows(sim) });
+        if (sim) post({ type: 'flows', report: computeFlows(sim, cmd.focus) });
         break;
     }
   } catch (err) {

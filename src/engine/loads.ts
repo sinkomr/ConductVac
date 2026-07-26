@@ -40,9 +40,11 @@ export class SurfaceRuntime {
 
   /**
    * Add this surface's outgassing + permeation into qOut (nSpecies-length,
-   * Torr·L/s), for sim time t.
+   * Torr·L/s), for sim time t. When qPermOut is supplied, the permeation
+   * terms are routed there instead of qOut (the flow report splits them;
+   * the solver passes one array and physics is unchanged).
    */
-  addLoads(t: number, species: GasId[], humidityRH: number, qOut: Float64Array): void {
+  addLoads(t: number, species: GasId[], humidityRH: number, qOut: Float64Array, qPermOut?: Float64Array): void {
     const mat = MATERIALS[this.material];
     const tExp = Math.max(0, t - this.exposureStart);
     const decay = mat.n === 0 ? 1 : Math.pow(T1 / (tExp + T0), mat.n);
@@ -74,13 +76,14 @@ export class SurfaceRuntime {
     }
 
     // permeation through elastomer seals: constant, He + H2O
+    const perm = qPermOut ?? qOut;
     if (mat.permeationHe) {
       const gi = species.indexOf('He');
-      if (gi >= 0) qOut[gi] += mat.permeationHe * this.area;
+      if (gi >= 0) perm[gi] += mat.permeationHe * this.area;
     }
     if (mat.permeationH2O) {
       const gi = species.indexOf('H2O');
-      if (gi >= 0) qOut[gi] += mat.permeationH2O * this.area;
+      if (gi >= 0) perm[gi] += mat.permeationH2O * this.area;
     }
   }
 

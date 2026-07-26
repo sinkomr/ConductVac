@@ -299,6 +299,14 @@ export function compileSystem(sys: SystemDefinition): CompiledSystem {
         break;
       }
 
+      case 'rga': {
+        // display-only instrument: just a nub volume; the UI reads the node's
+        // partial pressures directly (no engine gauge → no strip-chart series)
+        junction(0, 5e-3);
+        regionNode[`${id}:0`] = portNode[`${id}:0`];
+        break;
+      }
+
       case 'leak': {
         const a = junction(0, 1e-4);
         leaks.push({ id, node: a, qStd: num('qStd', 1e-6), label: id });

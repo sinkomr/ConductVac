@@ -139,6 +139,7 @@ export function Inspector() {
         </button>
       )}
       {def.kind === 'leakdetector' && <LeakDetectorReadout partId={inst.id} />}
+      {(def.kind === 'pump' || def.kind.startsWith('coldtrap')) && <CapacityReadout partId={inst.id} />}
       <div className="btn-row">
         <button className="btn" onClick={() => rotatePart(inst.id)}>Rotate (R)</button>
         <button className="btn danger" onClick={() => deletePart(inst.id)}>Delete</button>
@@ -150,6 +151,30 @@ export function Inspector() {
         </details>
       )}
     </aside>
+  );
+}
+
+function CapacityReadout({ partId }: { partId: string }) {
+  const snapshot = useStore((s) => s.snapshot);
+  const pm = snapshot?.pumps.find((p) => p.id === partId);
+  if (!snapshot || !pm || pm.capacityFrac === null) return null;
+  const frac = Math.min(1, pm.capacityFrac);
+  const color = frac >= 1 ? '#ff7070' : frac > 0.8 ? '#ffb14e' : '#7bd88f';
+  return (
+    <div className="cap-readout">
+      <div className="prop-row"><span>capacity used</span><b>{frac >= 0.995 ? 'FULL' : `${Math.round(frac * 100)}%`}</b></div>
+      <div className="species-bar-bg">
+        <div className="species-bar" style={{ width: `${frac * 100}%`, background: color }} />
+      </div>
+      {snapshot.species.map((g, i) =>
+        (pm.capacityUsed[i] ?? 0) > 1e-9 ? (
+          <div key={g} className="prop-row tiny-row">
+            <span>{g}</span><span>{pm.capacityUsed[i].toExponential(1)} Torr·L</span>
+          </div>
+        ) : null,
+      )}
+      <div className="hint">Regenerate (script action) while off to empty a saturated capture pump.</div>
+    </div>
   );
 }
 

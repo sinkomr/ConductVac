@@ -149,6 +149,27 @@ export class PumpRuntime {
     return this.model.kind === 'turbo' || this.model.kind === 'diffusion' || this.model.kind === 'roots';
   }
 
+  /** 0..1 fill of a capture pump's capacity (worst species for cryo), null for throughput pumps */
+  capacityFraction(): number | null {
+    const m = this.model;
+    if (m.kind === 'cryo') {
+      let worst: number | null = null;
+      for (let gi = 0; gi < this.species.length; gi++) {
+        const cap = m.capacity[this.species[gi]];
+        if (cap !== undefined && cap !== Infinity && cap > 0) {
+          worst = Math.max(worst ?? 0, this.capacityUsed[gi] / cap);
+        }
+      }
+      return worst;
+    }
+    if (m.kind === 'neg' || m.kind === 'sorption') {
+      let used = 0;
+      for (let gi = 0; gi < this.species.length; gi++) used += this.capacityUsed[gi];
+      return m.capacity > 0 ? used / m.capacity : null;
+    }
+    return null;
+  }
+
   /** Spin-up / warm-up time constant, s. */
   get tau(): number {
     switch (this.model.kind) {

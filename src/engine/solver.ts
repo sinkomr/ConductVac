@@ -797,6 +797,7 @@ export class Sim {
               pm.backingIdx >= 0 ? this.p[heIdx * nN + pm.backingIdx] : 0,
             )
           : 0;
+        const capacityFrac = pm.capacityFraction();
         return {
           id: pm.spec.id,
           on: pm.on,
@@ -807,6 +808,8 @@ export class Sim {
           atSpeed: pm.atSpeed,
           spinFraction: pm.spinFrac,
           qHelium,
+          capacityFrac,
+          capacityUsed: capacityFrac !== null ? Array.from(pm.capacityUsed) : [],
         };
       }),
       steadyState: this.lastRate < this.opts.steadyTol,

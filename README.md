@@ -39,6 +39,12 @@ Load an example from the header dropdown (the scroll + turbo crossover is a good
 - Elastomer-sealed joints automatically contribute their wetted Viton area (outgassing **and** He/H₂O permeation).
 - Tube physics follows the *length property*, not the drawn length.
 
+## Instruments & diagnosis
+
+- **RGA tab**: place an *RGA head* (Gauges palette) on any port and watch a live m/z spectrum — standard cracking patterns (H₂O → 18/17/16, N₂ → 28/14, CO₂ → 44/28/16/12), ionization-sensitivity weighting, filament interlock above 1e-4 Torr.
+- **Gas flow tab** now opens with a per-chamber diagnosis: *conductance-limited* (names the worst-drop element and its pressure ratio), *pump-limited*, *gas-load-limited* or *leak-limited*, with one-click culprit highlighting on the schematic. Permeation is split from outgassing in the Sankey.
+- Capture pumps (cryo, NEG, sorption, LN₂ traps) show **capacity fill bars** on their symbols and per-species sorbed inventory in the inspector.
+
 ## Sharing & files
 
 - **🔗 Share** compresses the whole system into the URL (`#s=…`) and copies the link — no server, no account; opening the link restores the exact build.
