@@ -27,7 +27,20 @@ body {
 }
 .sim-time { font-variant-numeric: tabular-nums; color: #9fd7ff; margin-left: 6px; }
 .sim-time em { color: #7bd88f; font-style: normal; }
-.stale { color: #ffb14e; }
+.status-chips { display: inline-flex; gap: 6px; align-items: center; }
+.status-chip { padding: 3px 8px; font-size: 12px; white-space: nowrap; }
+.status-chip.warn { color: #ffd27d; border-color: #7a5b23; background: #2e2617; }
+.status-chip.edited {
+  color: #ffb14e; border: 1px solid #5c4a26; border-radius: 6px;
+  background: #24201a; cursor: default;
+}
+.warn-popover {
+  position: fixed; z-index: 60;
+  min-width: 240px; max-width: min(440px, 86vw); max-height: 40vh; overflow-y: auto;
+  background: #1d2027; border: 1px solid #4a4436; border-radius: 8px;
+  padding: 8px 10px; box-shadow: 0 6px 24px #000a; font-size: 12px;
+}
+.warn-popover .warning { color: #ffd27d; padding: 3px 0; }
 .speed { display: flex; gap: 2px; }
 .speed-btn { padding: 3px 7px; }
 .speed-btn.active { background: #2c5c9e; border-color: #6ab0ff; }

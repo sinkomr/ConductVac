@@ -1,6 +1,56 @@
+import { useEffect, useState } from 'react';
 import { formatSimTime, useStore } from '../../store';
 
 const SPEEDS = [1, 10, 100, 1000, 10000];
+
+/**
+ * Compact warnings + stale indicators at the START of the controls strip, so
+ * they stay visible on mobile where the bar scrolls sideways (the old trailing
+ * text scrolled off-screen and compile warnings only lived in the desktop
+ * inspector). The popover is position:fixed so the scroll strip can't clip it.
+ */
+function StatusChips() {
+  const warnings = useStore((s) => s.warnings);
+  const stale = useStore((s) => s.stale);
+  const simLoaded = useStore((s) => s.simLoaded);
+  const [pop, setPop] = useState<null | { left: number; top: number }>(null);
+
+  useEffect(() => {
+    if (!pop) return;
+    const close = () => setPop(null);
+    window.addEventListener('pointerdown', close);
+    return () => window.removeEventListener('pointerdown', close);
+  }, [pop]);
+
+  if (warnings.length === 0 && !(stale && simLoaded)) return null;
+  return (
+    <span className="status-chips">
+      {warnings.length > 0 && (
+        <button
+          className="btn status-chip warn"
+          title="compile warnings"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setPop(pop ? null : { left: Math.max(8, r.left), top: r.bottom + 6 });
+          }}
+        >
+          ⚠ {warnings.length}
+        </button>
+      )}
+      {stale && simLoaded && (
+        <span className="status-chip edited" title="system edited — Reset to apply">↺ edited</span>
+      )}
+      {pop && warnings.length > 0 && (
+        <div className="warn-popover" style={{ left: pop.left, top: pop.top }} onPointerDown={(e) => e.stopPropagation()}>
+          {warnings.map((w, i) => (
+            <div key={i} className="warning">⚠ {w}</div>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
 
 export function Controls() {
   const running = useStore((s) => s.running);
@@ -20,6 +70,7 @@ export function Controls() {
       >
         ☰ Parts
       </button>
+      <StatusChips />
       <button className="btn primary" onClick={() => (running ? st().pauseSim() : st().runSim())} disabled={ffActive}>
         {running ? '❚❚ Pause' : '▶ Run'}
       </button>
@@ -72,7 +123,6 @@ export function Controls() {
         />
         pressure labels
       </label>
-      {stale && simLoaded && <span className="stale">system edited — Reset to apply</span>}
     </div>
   );
 }

@@ -40,6 +40,8 @@ export function Canvas() {
   // touch pinch-zoom state: active pointers + gesture baseline
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<null | { d0: number; scale0: number; wx: number; wy: number }>(null);
+  // pre-drag snapshot: committed as ONE undo step on drop (if anything moved)
+  const dragPreRef = useRef<null | { json: string; pos: Map<string, { x: number; y: number }> }>(null);
 
   // expose the live SVG element for schematic export
   useEffect(() => {
@@ -219,6 +221,18 @@ export function Canvas() {
       setMarquee(null);
     }
     if (drag) {
+      // one undo step for the whole drag — but only if something moved;
+      // committed BEFORE snap-connect so Ctrl+Z order is un-connect, un-move
+      const pre = dragPreRef.current;
+      if (pre) {
+        const moved = drag.ids.some((id) => {
+          const p = st().system.parts.find((q) => q.id === id);
+          const p0 = pre.pos.get(id);
+          return p && p0 && (p.x !== p0.x || p.y !== p0.y);
+        });
+        if (moved) st().commitDragUndo(pre.json);
+        dragPreRef.current = null;
+      }
       // snap-connect only after single-part drags (a group snapping is chaos)
       if (drag.ids.length === 1) {
         const inst = st().system.parts.find((p) => p.id === drag.ids[0]);
@@ -354,10 +368,15 @@ export function Canvas() {
                   const ids = keepGroup ? st().selection : [inst.id];
                   const pt = toCanvas(e.clientX, e.clientY);
                   const offsets: Record<string, { ox: number; oy: number }> = {};
+                  const pos = new Map<string, { x: number; y: number }>();
                   for (const id of ids) {
                     const p = st().system.parts.find((q) => q.id === id);
-                    if (p) offsets[id] = { ox: pt.x / CELL - p.x, oy: pt.y / CELL - p.y };
+                    if (p) {
+                      offsets[id] = { ox: pt.x / CELL - p.x, oy: pt.y / CELL - p.y };
+                      pos.set(id, { x: p.x, y: p.y });
+                    }
                   }
+                  dragPreRef.current = { json: JSON.stringify(st().system), pos };
                   setDrag({ ids: ids.filter((id) => offsets[id]), offsets });
                 }}
                 onDoubleClick={(e) => {

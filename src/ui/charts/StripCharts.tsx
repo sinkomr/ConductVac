@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import uPlot from 'uplot';
 import { downloadBlob } from '../download';
-import { chartHistory, useStore } from '../../store';
+import { UNIT_FACTOR, chartHistory, useStore } from '../../store';
 
 /**
  * Strip charts (§3.3): every placed gauge auto-added; log-p vs t or log-t;
@@ -14,6 +14,7 @@ export function StripCharts() {
   const chartTick = useStore((s) => s.chartTick);
   const truthOverlay = useStore((s) => s.truthOverlay);
   const logTime = useStore((s) => s.logTime);
+  const unit = useStore((s) => s.unit);
   const st = useStore.getState;
   const hostRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
@@ -28,7 +29,7 @@ export function StripCharts() {
         stroke: COLORS[i % COLORS.length],
         width: 1.6,
         spanGaps: false,
-        value: (_u, v) => (v == null ? '—' : v.toExponential(2)),
+        value: (_u, v) => (v == null ? '—' : `${v.toExponential(2)} ${unit}`),
       });
     });
     if (truthOverlay) {
@@ -39,7 +40,7 @@ export function StripCharts() {
           width: 1,
           dash: [5, 5],
           spanGaps: false,
-          value: (_u, v) => (v == null ? '—' : v.toExponential(2)),
+          value: (_u, v) => (v == null ? '—' : `${v.toExponential(2)} ${unit}`),
         });
       });
     }
@@ -64,7 +65,7 @@ export function StripCharts() {
       legend: { live: true },
       cursor: { drag: { x: true, y: false } },
     };
-  }, [gaugeIds.join(','), truthOverlay, logTime]);
+  }, [gaugeIds.join(','), truthOverlay, logTime, unit]);
 
   // (re)create plot when structure changes; leave room for the legend row
   useEffect(() => {
@@ -83,7 +84,7 @@ export function StripCharts() {
     };
   }, [opts]);
 
-  // feed data
+  // feed data (history stays in Torr; converted to the selected unit here)
   useEffect(() => {
     const plot = plotRef.current;
     if (!plot) return;
@@ -99,21 +100,27 @@ export function StripCharts() {
         trs = trs.map((a) => a.slice(startIdx));
       }
     }
+    const f = UNIT_FACTOR[unit];
+    if (f !== 1) {
+      vals = vals.map((a) => a.map((v) => v * f));
+      trs = trs.map((a) => a.map((v) => v * f));
+    }
     const data: uPlot.AlignedData = [
       t,
       ...vals,
       ...(truthOverlay ? trs : []),
     ] as uPlot.AlignedData;
     plot.setData(data);
-  }, [chartTick, truthOverlay, logTime]);
+  }, [chartTick, truthOverlay, logTime, unit]);
 
   const exportCsv = () => {
-    const rows = [['t_s', ...gaugeIds.map((g) => `${g}_reading_Torr`), ...gaugeIds.map((g) => `${g}_true_Torr`)]];
+    const f = UNIT_FACTOR[unit];
+    const rows = [['t_s', ...gaugeIds.map((g) => `${g}_reading_${unit}`), ...gaugeIds.map((g) => `${g}_true_${unit}`)]];
     for (let i = 0; i < chartHistory.t.length; i++) {
       rows.push([
         chartHistory.t[i].toPrecision(8),
-        ...chartHistory.values.map((v) => String(v[i])),
-        ...chartHistory.truths.map((v) => String(v[i])),
+        ...chartHistory.values.map((v) => String(v[i] * f)),
+        ...chartHistory.truths.map((v) => String(v[i] * f)),
       ]);
     }
     const blob = new Blob([rows.map((r) => r.join(',')).join('\n')], { type: 'text/csv' });
@@ -135,6 +142,7 @@ export function StripCharts() {
       <div className="chart-toolbar">
         <label><input type="checkbox" checked={truthOverlay} onChange={(e) => st().setTruthOverlay(e.target.checked)} /> show true pressure</label>
         <label><input type="checkbox" checked={logTime} onChange={(e) => st().setLogTime(e.target.checked)} /> log time</label>
+        <span className="hint">y: {unit}</span>
         <button className="btn" onClick={exportCsv}>CSV</button>
         <button className="btn" onClick={exportPng}>PNG</button>
       </div>

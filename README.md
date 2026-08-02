@@ -24,6 +24,7 @@ npm install
 npm run dev        # development server
 npm test           # engine validation suite (§ Physics below)
 npm run build      # static production build in dist/
+npm run smoke      # headless browser pass over dist/: every example must render clean
 ```
 
 Load an example from the header dropdown (the scroll + turbo crossover is a good first tour), press **Run**, and raise the speed. Double-click the gate valve mid-rough-down to see why crossover discipline matters.
@@ -170,7 +171,7 @@ scripts        browser smoke test (node scripts/smoke.mjs after a build)
 
 ## Deploy
 
-Pushes to `main` build and publish to GitHub Pages via `.github/workflows/deploy.yml` (Vite `base: './'` keeps the bundle relocatable). Any static file host works: `npm run build` and serve `dist/`.
+Pushes to `main` build and publish to GitHub Pages via `.github/workflows/deploy.yml` (Vite `base: './'` keeps the bundle relocatable). Pull requests run the same tests + build via `.github/workflows/ci.yml` before anything merges. Any static file host works: `npm run build` and serve `dist/`.
 
 ## References
 

@@ -144,6 +144,8 @@ interface AppState {
   addPart(defId: string, x: number, y: number): string;
   movePart(id: string, x: number, y: number): void;
   moveParts(entries: { id: string; x: number; y: number }[]): void;
+  /** push a pre-drag snapshot so a whole drag undoes as one step */
+  commitDragUndo(preJson: string): void;
   rotatePart(id: string): void;
   rotateSelection(): void;
   setParam(id: string, key: string, value: number | string | boolean): void;
@@ -219,10 +221,12 @@ export const selectedOne = (s: { selection: string[] }): string | null =>
 let clipboard: ClipboardData | null = null;
 
 let worker: Worker | null = null;
+// injectable for tests (node has no Worker); production uses the Vite worker bundle
+let workerFactory: () => Worker = () => new EngineWorker();
 
 function ensureWorker(set: (p: Partial<AppState>) => void, get: () => AppState): Worker {
   if (worker) return worker;
-  worker = new EngineWorker();
+  worker = workerFactory();
   worker.onmessage = (ev: MessageEvent<WorkerMsg>) => {
     const msg = ev.data;
     switch (msg.type) {
@@ -334,6 +338,14 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   movePart: (id, x, y) => get().moveParts([{ id, x, y }]),
+
+  // the Canvas captures JSON.stringify(system) on drag start and commits it
+  // here on drop; like moveParts this sets no state (positions don't compile)
+  commitDragUndo: (preJson) => {
+    undoStack.push(preJson);
+    if (undoStack.length > 100) undoStack.shift();
+    redoStack.length = 0;
+  },
 
   moveParts: (entries) => {
     const byId = new Map(entries.map((e) => [e.id, e]));
@@ -688,3 +700,26 @@ export const useStore = create<AppState>((set, get) => ({
   setBottomTab: (t) => set({ bottomTab: t }),
   setHighlightParts: (ids) => set({ highlightParts: ids }),
 }));
+
+// ------------------------------------------------------------- test hooks ----
+
+/** Replace (or restore, with null) the worker constructor. Tests only. */
+export function _setWorkerFactory(f: (() => Worker) | null): void {
+  workerFactory = f ?? (() => new EngineWorker());
+  worker = null;
+}
+
+/** Reset store state and undo/redo stacks to boot defaults. Tests only. */
+export function _resetForTests(): void {
+  undoStack.length = 0;
+  redoStack.length = 0;
+  worker = null;
+  useStore.setState({
+    system: emptySystem(),
+    selection: [], connectFrom: null, placing: null,
+    compiled: null, warnings: [], stale: false,
+    running: false, ffActive: false, snapshot: null, simLoaded: false,
+    eventLog: [], chartTick: 0, flows: null,
+    unit: 'Torr', highlightParts: null,
+  });
+}
