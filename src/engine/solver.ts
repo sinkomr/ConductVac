@@ -8,6 +8,7 @@ import {
   BAKE_DOSE_MIN_C, BAKE_DOSE_REF_C, BAKE_DOSE_TARGET, T0K, TAU_COOL, TAU_HEAT, rampTo,
 } from './thermal';
 import { MATERIALS } from '../data/materials';
+import { P_SAT_H2O_20C, pSatH2O } from '../data/gases';
 
 /**
  * Numerical core (§1.6) — backward Euler with Newton iteration, integrating
@@ -105,6 +106,8 @@ export class Sim {
   stats: StepStats = { steps: 0, rejects: 0, newtonFails: 0, maxNewtonIters: 0 };
   /** max |du/dt| of the last accepted step (steady-state metric) */
   lastRate = Infinity;
+  /** per-node max |du/dt| of the last accepted step (diagnosis gating) */
+  readonly rateNode: Float64Array;
   /** diagnostic: why the last Newton solve failed */
   lastFail = '';
   /** diagnostic: node dominating the last error estimate */
@@ -136,6 +139,12 @@ export class Sim {
   private readonly dlnT: Float64Array;
   private readonly tRelEdge: Float64Array;
   private readonly relRates: Float64Array;
+  // water condensation clamp: species index, wall area (cm²), and the frozen
+  // per-node psat / exchange coefficient for the attempted step
+  private readonly gH2O: number;
+  private readonly areaNode: Float64Array;
+  private readonly psatNode: Float64Array;
+  private readonly condS: Float64Array;
   /** pumps/gauges knocked out by a power failure (null = power on) */
   powerLatch: { pumpIds: string[]; gaugeIds: string[] } | null = null;
 
@@ -164,6 +173,12 @@ export class Sim {
     this.dlnT = new Float64Array(this.nN);
     this.tRelEdge = new Float64Array(net.edges.length);
     this.relRates = new Float64Array(this.nS);
+    this.rateNode = new Float64Array(this.nN).fill(Infinity);
+    this.gH2O = net.species.indexOf('H2O');
+    this.areaNode = new Float64Array(this.nN);
+    for (const s of net.surfaces) this.areaNode[s.nodeIdx] += s.area;
+    this.psatNode = new Float64Array(this.nN);
+    this.condS = new Float64Array(this.nN);
 
     this.pumpsAtInlet = net.nodes.map(() => []);
     this.pumpsAtBacking = net.nodes.map(() => []);
@@ -474,7 +489,7 @@ export class Sim {
     const tmp = new Float64Array(nS);
     for (const s of net.surfaces) {
       tmp.fill(0);
-      s.addLoads(tEnd, net.species, net.humidityRH, tmp, undefined, this.tempEnd[s.nodeIdx] - 273.15);
+      s.addLoads(tEnd, net.species, tmp, undefined, this.tempEnd[s.nodeIdx] - 273.15);
       for (let g = 0; g < nS; g++) this.qSrc[g * nN + s.nodeIdx] += tmp[g];
     }
 
@@ -482,6 +497,27 @@ export class Sim {
     for (const pm of net.pumps) {
       if (pm.releaseRates(this.relRates)) {
         for (let g = 0; g < nS; g++) this.qSrc[g * nN + pm.nodeIdx] += this.relRates[g];
+      }
+    }
+
+    // water condensation clamp: a node at/above psat(T_wall), or one holding
+    // condensate, exchanges H2O with its walls through a linear S·(psat − p)
+    // term this step. S is a sticking-limited estimate from wall area (with a
+    // V^(2/3) floor so surface-less junctions still clamp); evaporation is
+    // capped so a step can never release more than the inventory.
+    if (this.gH2O >= 0) {
+      const horizon = Math.max(dtT, 1e-9);
+      for (let i = 0; i < nN; i++) {
+        this.condS[i] = 0;
+        const node = net.nodes[i];
+        if (node.fixed) continue;
+        const psat = pSatH2O(this.tempEnd[i]);
+        this.psatNode[i] = psat;
+        const pw = this.p[this.gH2O * nN + i];
+        if (pw <= psat && node.condensedH2O <= 0) continue;
+        let Sc = 0.5 * this.areaNode[i] + 20 * Math.cbrt(node.volume * node.volume);
+        if (pw < psat) Sc = Math.min(Sc, node.condensedH2O / (horizon * (psat - pw)));
+        this.condS[i] = Sc;
       }
     }
   }
@@ -604,6 +640,13 @@ export class Sim {
           dRdui += dBack * pi;
           const ea = net.eqOf[aIdx];
           if (ea >= 0) band.add(e, ea, -(dt / (V * pi)) * dIn * pa);
+        }
+
+        // wall condensation/evaporation of water: linear in p, exact Jacobian
+        if (g === this.gH2O && this.condS[i] > 0) {
+          const Sc = this.condS[i];
+          R += Sc * (this.psatNode[i] - pi);
+          dRdui -= Sc * pi;
         }
 
         const gfac = dt / (V * pi);
@@ -746,6 +789,7 @@ export class Sim {
 
       // ---- accept ----
       let maxDu = 0;
+      this.rateNode.fill(0);
       for (let g = 0; g < nS; g++) {
         const off = g * nN;
         for (let e = 0; e < net.nEq; e++) {
@@ -756,6 +800,7 @@ export class Sim {
           if (Math.min(un, this.u[off + i]) >= U_CARE && Math.exp(un) >= 1e-7 * this.pTotWork[i]) {
             const ad = Math.abs(d);
             if (ad > maxDu) maxDu = ad;
+            if (ad > this.rateNode[i]) this.rateNode[i] = ad;
           }
           this.u[off + i] = un;
           this.p[off + i] = Math.exp(un);
@@ -763,6 +808,7 @@ export class Sim {
       }
       this.t += dtTry;
       this.lastRate = maxDu / dtTry;
+      for (let i = 0; i < nN; i++) this.rateNode[i] /= dtTry;
       this.stats.steps++;
       this.stats.maxNewtonIters = Math.max(this.stats.maxNewtonIters, newtonIters);
       this.duPrev.set(this.du);
@@ -806,6 +852,17 @@ export class Sim {
     for (const s of net.surfaces) {
       if (this.pTotWork[s.nodeIdx] > 100 || this.totalAt(s.nodeIdx) > 100) {
         s.exposureStart = this.t;
+        // record WHAT wet the walls: the H2O FRACTION of the gas, scaled so
+        // lab air at RH r reads back r. Fraction, not absolute partial —
+        // this fires on every step above 100 Torr, and during the early
+        // rough-down all partials fall together, so a ratio stays put while
+        // an absolute pH2O would record a bogus drying-out. Venting with dry
+        // N2 leaves ventRH ≈ 0 (outgassing floor); lab air re-wets to r.
+        if (this.gH2O >= 0) {
+          const pTot = this.totalAt(s.nodeIdx);
+          const frac = pTot > 0 ? this.p[this.gH2O * this.nN + s.nodeIdx] / pTot : 0;
+          s.ventRH = Math.max(0, Math.min(100, (100 * frac * 760) / P_SAT_H2O_20C));
+        }
       }
       if (!s.baked) {
         const tc = this.tempEnd[s.nodeIdx] - 273.15;
@@ -825,6 +882,17 @@ export class Sim {
     // drain sorbed inventory released by warming cryo heads (rates as frozen)
     for (const pm of net.pumps) {
       if (pm.releaseRates(this.relRates)) pm.drainCapacity(this.relRates, dt);
+    }
+
+    // condensation inventory: ΔI = S·(p_end − psat)·dt (positive condenses,
+    // negative evaporates; the freeze-side cap keeps the clamp from overdraw)
+    if (this.gH2O >= 0) {
+      for (let i = 0; i < nN; i++) {
+        const Sc = this.condS[i];
+        if (Sc <= 0) continue;
+        const dI = Sc * (this.p[this.gH2O * nN + i] - this.psatNode[i]) * dt;
+        net.nodes[i].condensedH2O = Math.max(0, net.nodes[i].condensedH2O + dI);
+      }
     }
 
     // pumps: throughput at accepted state, then state advance
@@ -913,6 +981,7 @@ export class Sim {
         pTotal: this.totalAt(i),
         partials: Array.from({ length: nS }, (_, g) => this.p[g * nN + i]),
         tempC: n.tempK - 273.15,
+        condensedH2O: n.condensedH2O,
       })),
       gauges: net.gauges.map((gg) => gg.reading(this.partialsAt(gg.nodeIdx))),
       valves: net.edges

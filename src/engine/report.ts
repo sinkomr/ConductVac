@@ -173,9 +173,19 @@ function diagnose(
   // fast transient (roughing, just-fired events): the pressure DISTRIBUTION
   // isn't established yet, so attribution misleads. A slow quasi-static
   // drain (constriction-limited chamber emptying for hours, rate ~3e-3/s)
-  // is exactly when diagnosis is wanted — gate on the solver's slew rate
-  // well above that but below roughing rates (~0.1/s).
-  if (sim.lastRate > 2e-2) {
+  // is exactly when diagnosis is wanted — gate on the slew rate well above
+  // that but below roughing rates (~0.1/s). Gate PER PATH, not globally: one
+  // slowly-draining corner elsewhere must not mute every chamber's verdict.
+  let pathRate = sim.rateNode[nodeIdx];
+  {
+    let cur = nodeIdx;
+    for (const ei of pathEdges) {
+      const e = net.edges[ei];
+      cur = e.a === cur ? e.b : e.a;
+      if (sim.rateNode[cur] > pathRate) pathRate = sim.rateNode[cur];
+    }
+  }
+  if (pathRate > 2e-2) {
     return { ...base, verdict: 'transient' };
   }
   if (!pump || !pump.on) {
@@ -256,7 +266,9 @@ export function computeFlows(sim: Sim, focus?: string[]): FlowReport {
   for (const s of net.surfaces) {
     tmp.fill(0);
     tmpPerm.fill(0);
-    s.addLoads(sim.t, net.species, net.humidityRH, tmp, tmpPerm);
+    // node temperature matters: during a 150 °C bake the Arrhenius factor is
+    // ~×148, and a report that ignored it blamed leaks for bake loads
+    s.addLoads(sim.t, net.species, tmp, tmpPerm, net.nodes[s.nodeIdx].tempK - 273.15);
     const rec = byNode.get(s.nodeIdx) ?? { outgas: new Float64Array(nS), perm: new Float64Array(nS) };
     for (let g = 0; g < nS; g++) {
       rec.outgas[g] += tmp[g];

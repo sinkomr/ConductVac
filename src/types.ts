@@ -170,6 +170,8 @@ export type PumpModelSpec =
       k0: Partial<Record<GasId, number>>;
       pCritBack: number; // Torr
       tauSpin: number; // s (diffusion: warm-up time constant)
+      /** coast-down time constant, s — default 20×tauSpin (turbo) / 3× (diffusion) */
+      tauCoast?: number;
       /** inlet total pressure where throughput rolloff begins / ends (Torr) */
       rolloffStart?: number; // default 1e-2
       rolloffEnd?: number; // default 1
@@ -352,6 +354,8 @@ export interface NodeSnapshot {
   partials: number[]; // indexed like species[]
   /** live node temperature, °C */
   tempC: number;
+  /** water condensed on the walls, Torr·L */
+  condensedH2O: number;
 }
 
 export interface SimSnapshot {

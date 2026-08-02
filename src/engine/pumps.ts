@@ -26,6 +26,13 @@ function smoothstep01(t: number): number {
   return x * x * (3 - 2 * x);
 }
 
+/**
+ * Windage braking on an unpowered turbo rotor: 1/τ_brake = K_BRAKE·p_inlet.
+ * ~7 s at 1 Torr, ~days below 1e-4 Torr — so a power-failed turbo in high
+ * vacuum coasts on bearing friction alone until the flood itself stops it.
+ */
+const K_BRAKE = 0.15; // 1/(s·Torr)
+
 function logSmoothstep(p: number, from: number, to: number): number {
   if (p <= 0) return 0;
   return smoothstep01((Math.log10(p) - Math.log10(from)) / (Math.log10(to) - Math.log10(from)));
@@ -435,10 +442,18 @@ export class PumpRuntime {
     const logs: EventLogEntry[] = [];
     const m = this.model;
 
-    // spin-up / warm-up (exact first-order update)
+    // spin-up / warm-up (exact first-order update). Coast-down is NOT the
+    // mirror of spin-up: a turbo freewheels on bearing friction for tens of
+    // minutes (plus windage braking as the inlet floods), and a diffusion
+    // pump's boiler cools a few times slower than it heats.
     const target = this.on ? 1 : 0;
     const prevAtSpeed = this.spinFrac > 0.95;
-    this.spinFrac += (target - this.spinFrac) * (1 - Math.exp(-dt / this.tau));
+    let tau = this.tau;
+    if (target < this.spinFrac && (m.kind === 'turbo' || m.kind === 'diffusion')) {
+      const tauCoast = m.tauCoast ?? (m.kind === 'turbo' ? 20 : 3) * m.tauSpin;
+      tau = m.kind === 'turbo' ? 1 / (1 / tauCoast + K_BRAKE * pTotIn) : tauCoast;
+    }
+    this.spinFrac += (target - this.spinFrac) * (1 - Math.exp(-dt / tau));
     if (this.spinFrac > 0.9999) this.spinFrac = 1;
     if (this.spinFrac < 1e-4) this.spinFrac = 0;
     if (this.on && !prevAtSpeed && this.spinFrac > 0.95 && !this.atSpeedLogged) {
