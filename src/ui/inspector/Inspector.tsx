@@ -162,10 +162,12 @@ function TemperatureBlock({ partId }: { partId: string }) {
   const compiled = useStore((s) => s.compiled);
   const simLoaded = useStore((s) => s.simLoaded);
   const liveAction = useStore((s) => s.liveAction);
+  const snapshot = useStore((s) => s.snapshot);
   useStore((s) => s.chartTick);
   const [setpoint, setSetpoint] = useState(150);
   const node = compiled?.regionNode[`${partId}:0`] ?? compiled?.portNode[`${partId}:0`];
   const tc = node ? nodeTemps.get(node) : undefined;
+  const condensed = node ? snapshot?.nodes.find((n) => n.id === node)?.condensedH2O : undefined;
   if (!simLoaded) return null;
   return (
     <div className="temp-block">
@@ -173,6 +175,12 @@ function TemperatureBlock({ partId }: { partId: string }) {
         <span>temperature</span>
         <b>{tc !== undefined ? `${tc.toFixed(tc >= 100 ? 0 : 1)} °C` : '—'}</b>
       </div>
+      {condensed !== undefined && condensed > 0.01 && (
+        <div className="prop-row">
+          <span>condensed H₂O</span>
+          <b>{condensed.toExponential(1)} Torr·L</b>
+        </div>
+      )}
       <div className="prop-row">
         <span>setpoint</span>
         <span>

@@ -28,6 +28,13 @@ export class SurfaceRuntime {
   baked: boolean;
   /** sim time when this surface last saw > 100 Torr */
   exposureStart = 0;
+  /**
+   * Effective relative humidity of the LAST gas that wetted these walls
+   * (recorded at exposure reset from the node's H2O partial). Venting with
+   * dry N2 leaves this ≈ 0, so the H2O outgassing floor applies — the classic
+   * dry-venting discipline. buildNetwork seeds it with the ambient RH.
+   */
+  ventRH = 50;
   /** explicit bake in progress (bakeEnd-compat latch; the RATE follows node temperature) */
   bakingAtC: number | null = null;
   /** integrated thermal dose toward `baked` (10^((T−150°C)/60)·dt while T ≥ 80 °C) */
@@ -47,13 +54,14 @@ export class SurfaceRuntime {
    * the solver passes one array and physics is unchanged). tempC is the
    * NODE temperature — the Arrhenius enhancement is always-on, so a bake
    * is just a setpoint (20 °C ⇒ factor exactly 1, matching the old model).
+   * The H2O component scales with ventRH, the humidity of the last exposure.
    */
-  addLoads(t: number, species: GasId[], humidityRH: number, qOut: Float64Array, qPermOut?: Float64Array, tempC = 20): void {
+  addLoads(t: number, species: GasId[], qOut: Float64Array, qPermOut?: Float64Array, tempC = 20): void {
     const mat = MATERIALS[this.material];
     const tExp = Math.max(0, t - this.exposureStart);
     const decay = mat.n === 0 ? 1 : Math.pow(T1 / (tExp + T0), mat.n);
     const bakeFac = bakeEnhancement(tempC);
-    const rhFac = Math.max(0.02, humidityRH / 50);
+    const rhFac = Math.max(0.02, this.ventRH / 50);
 
     if (!this.baked) {
       const q = mat.q1Unbaked * this.area * decay * bakeFac;

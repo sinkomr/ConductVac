@@ -94,6 +94,46 @@ describe('flow report diagnoses', () => {
     expect(rep.diagnoses[0].verdict).toBe('transient');
   });
 
+  it('the transient gate is per path: a settled chamber gets its verdict while another is still roughing', () => {
+    const sim = new Sim(base({
+      nodes: [
+        { id: 'A', volume: 20, label: 'settled' },
+        { id: 'B', volume: 200, label: 'roughing' },
+      ],
+      pumps: [
+        { id: 'pa', node: 'A', model: { kind: 'displacement', sPeak: 20, pUlt: 1e-9 }, on: true },
+        { id: 'pb', node: 'B', model: { kind: 'displacement', sPeak: 6, pUlt: 1e-9 }, on: true },
+      ],
+      leaks: [{ id: 'lk', node: 'A', qStd: 1e-6 }],
+    }));
+    sim.advance(150); // A at its leak floor within seconds; B mid-roughdown (τ ≈ 33 s)
+    const rep = computeFlows(sim, ['A', 'B']);
+    const dA = rep.diagnoses.find((d) => d.nodeId === 'A')!;
+    const dB = rep.diagnoses.find((d) => d.nodeId === 'B')!;
+    expect(dB.verdict).toBe('transient');
+    // the old global gate would have muted A too — it must diagnose normally
+    expect(dA.verdict).toBe('leak');
+  });
+
+  it('outgassing attribution follows node temperature during a bake', () => {
+    const sim = new Sim(base({
+      nodes: [{
+        id: 'ch', volume: 10, label: 'chamber',
+        surfaces: [{ area: 5000, material: 'ss304' }],
+      }],
+      pumps: [{ id: 'pump1', node: 'ch', model: { kind: 'displacement', sPeak: 20, pUlt: 1e-9 }, on: true }],
+    }));
+    sim.advance(1800);
+    const cold = computeFlows(sim, ['ch']).sources.find((s) => s.id === 'outgas.ch')!.q;
+    sim.applyAction({ type: 'setTemperature', nodeIds: 'all', temperatureC: 150, tauOverride: 30 });
+    sim.advance(600); // fully at 150 °C — Arrhenius ×10^(130/60) ≈ ×147
+    const hot = computeFlows(sim, ['ch']).sources.find((s) => s.id === 'outgas.ch')!.q;
+    // the report used to evaluate loads at 20 °C regardless of bake state,
+    // understating the source ~148× and blaming the wrong thing
+    expect(hot / cold).toBeGreaterThan(50);
+    expect(hot / cold).toBeLessThan(200);
+  });
+
   it('viton system reports a distinct permeation source', () => {
     const sim = new Sim(base({
       nodes: [{

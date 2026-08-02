@@ -31,6 +31,16 @@ export function isNoble(gas: GasId): boolean {
 /** Saturation vapor pressure of water at 20 °C, Torr. */
 export const P_SAT_H2O_20C = 17.5;
 
+/**
+ * Saturation vapor pressure of water at T, Torr — Clausius-Clapeyron anchored
+ * at 17.5 Torr / 293.15 K with B = L/R ≈ 5210 K. Within ~15% of Antoine from
+ * 0–150 °C, which is plenty for the condensation clamp; below 0 °C it keeps
+ * falling smoothly (ice branch not distinguished).
+ */
+export function pSatH2O(tempK: number): number {
+  return P_SAT_H2O_20C * Math.exp(5210 * (1 / 293.15 - 1 / Math.max(tempK, 1)));
+}
+
 /** Trace He in the atmosphere (5.2 ppm), Torr — the He leak-check background. */
 export const P_ATM_HE = 4.0e-3;
 /** Trace H2 in the atmosphere (~0.5 ppm), Torr. */

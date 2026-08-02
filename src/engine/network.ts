@@ -33,6 +33,8 @@ export interface NodeRuntime {
   tempTargetK: number;
   /** ramp time constant toward the target, s */
   tauT: number;
+  /** water condensed on this node's walls, Torr·L (psat clamp inventory) */
+  condensedH2O: number;
 }
 
 export interface EdgeRuntime {
@@ -111,6 +113,7 @@ export function buildNetwork(spec: EngineSystemSpec): Net {
       tempK: T0K,
       tempTargetK: T0K,
       tauT: TAU_HEAT,
+      condensedH2O: 0,
     });
     nodeIndex.set(n.id, idx);
     return idx;
@@ -199,12 +202,17 @@ export function buildNetwork(spec: EngineSystemSpec): Net {
     }
   }
 
-  // surfaces
+  // surfaces (walls start wetted by ambient lab air at the system humidity;
+  // subsequent vents overwrite ventRH with whatever gas actually floods in)
   const surfaces: SurfaceRuntime[] = [];
   for (const n of spec.nodes) {
     if (!n.surfaces) continue;
     const idx = nodeIndex.get(n.id)!;
-    for (const s of n.surfaces) surfaces.push(new SurfaceRuntime(idx, s));
+    for (const s of n.surfaces) {
+      const sr = new SurfaceRuntime(idx, s);
+      sr.ventRH = humidityRH;
+      surfaces.push(sr);
+    }
   }
 
   // gauges

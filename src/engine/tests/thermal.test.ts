@@ -182,7 +182,7 @@ describe('power failure', () => {
 });
 
 describe('cryo warm-up release', () => {
-  it('a loaded cold head re-emits its inventory when switched off, mass-balanced', () => {
+  it('a warming cold head re-emits its inventory, but the gas phase pins at psat — the rest condenses on the walls', () => {
     const sim = new Sim(base({
       nodes: [{ id: 'ch', volume: 5, label: 'chamber', initial: { air: 1e-8 } }],
       pumps: [{
@@ -191,6 +191,7 @@ describe('cryo warm-up release', () => {
       }],
     }));
     const pm = sim.net.pumps[0];
+    const node = sim.net.nodes[sim.net.nodeIndex.get('ch')!];
     const h2o = sim.net.species.indexOf('H2O');
     pm.capacityUsed[h2o] = 300; // pre-loaded ice
     sim.advance(300); // cold + on: gates closed, nothing escapes
@@ -199,10 +200,116 @@ describe('cryo warm-up release', () => {
 
     sim.applyAction({ type: 'pump', pumpId: 'cryo', on: false });
     sim.advance(1500); // head warms through the 165 K H2O gate, τ_release = 120 s
-    const released = sim.partialOf('ch', 'H2O') * 5; // Torr·L now in the gas phase
     expect(pm.capacityUsed[h2o]).toBeLessThan(1);
-    expect(released).toBeGreaterThan(300 * 0.95);
-    expect(released).toBeLessThan(300 * 1.05);
+    // 300 Torr·L into 5 L would be 60 Torr of water vapor — 3.4× above
+    // saturation at 20 °C, physically impossible. The gas phase pins at psat
+    // and the excess sits as condensate ("regen dew"), mass-balanced.
+    const pW = sim.partialOf('ch', 'H2O');
+    expect(pW).toBeGreaterThan(17.5 * 0.95);
+    expect(pW).toBeLessThan(17.5 * 1.1);
+    const total = pW * 5 + node.condensedH2O;
+    expect(total).toBeGreaterThan(300 * 0.95);
+    expect(total).toBeLessThan(300 * 1.05);
+  });
+});
+
+describe('turbo coast-down', () => {
+  it('coasts ~20× slower than it spins up; high inlet pressure brakes the rotor in seconds', () => {
+    const sim = new Sim(base({
+      nodes: [{ id: 'ch', volume: 50, label: 'chamber', initial: { air: 1e-8 } }],
+      pumps: [{
+        id: 'turbo', node: 'ch', on: true,
+        model: {
+          kind: 'turbo', sPeak: 80, k0: { N2: 1e8, air: 1e8, He: 1e6, H2: 5e3 },
+          pCritBack: 0.5, tauSpin: 30, cOff: 2,
+        },
+      }],
+    }));
+    const pm = sim.net.pumps.find((p) => p.spec.id === 'turbo')!;
+    const q = new Float64Array(4);
+    // spin-up from rest: τ = tauSpin = 30 s
+    pm.spinFrac = 0;
+    pm.advance(30, 0, 1e-8, q);
+    expect(pm.spinFrac).toBeCloseTo(1 - Math.exp(-1), 2);
+    // coast in high vacuum: bearing friction only, τ = 20·tauSpin = 600 s
+    pm.on = false;
+    pm.spinFrac = 1;
+    pm.advance(600, 10, 1e-8, q);
+    expect(pm.spinFrac).toBeCloseTo(Math.exp(-1), 2);
+    // coast at 1 Torr inlet: windage dominates (τ_eff ≈ 6.6 s)
+    pm.spinFrac = 1;
+    pm.advance(30, 20, 1, q);
+    expect(pm.spinFrac).toBeLessThan(0.05);
+  });
+});
+
+describe('water saturation clamp', () => {
+  it('a supersaturated node pins at psat(T); condensate re-evaporates on heating and returns on cooling', () => {
+    const sim = new Sim(base({
+      nodes: [{ id: 'ch', volume: 2, label: 'wet', initial: { H2O: 100 } }],
+    }));
+    sim.advance(120);
+    const node = sim.net.nodes[sim.net.nodeIndex.get('ch')!];
+    expect(sim.partialOf('ch', 'H2O')).toBeCloseTo(17.5, 0);
+    expect(node.condensedH2O).toBeGreaterThan(155); // (100 − 17.5)·2 ≈ 165
+    expect(node.condensedH2O).toBeLessThan(172);
+    // mass balance within the ±5% the u-space step bookkeeping allows
+    // (same class as cryo capacity integration)
+    const total = sim.partialOf('ch', 'H2O') * 2 + node.condensedH2O;
+    expect(total).toBeGreaterThan(190);
+    expect(total).toBeLessThan(206);
+
+    // heat to 60 °C: psat(333 K) ≈ 148 Torr — the whole inventory re-evaporates
+    sim.applyAction({ type: 'setTemperature', nodeIds: 'all', temperatureC: 60, tauOverride: 30 });
+    sim.advance(600);
+    expect(node.condensedH2O).toBeLessThan(1);
+    expect(sim.partialOf('ch', 'H2O')).toBeGreaterThan(80);
+
+    // cool back: gas returns to psat, the rest condenses again. (Inventory is
+    // p·V at the node temperature, so a condense-at-20°/evaporate-at-60°
+    // cycle books ~12% low — documented standard-conditions simplification.)
+    sim.applyAction({ type: 'setTemperature', nodeIds: 'all', temperatureC: 20, tauOverride: 30 });
+    sim.advance(900);
+    expect(sim.partialOf('ch', 'H2O')).toBeCloseTo(17.5, 0);
+    expect(node.condensedH2O).toBeGreaterThan(125);
+    expect(node.condensedH2O).toBeLessThan(162);
+  });
+});
+
+describe('vent gas discipline', () => {
+  const ventedSys = (dry: boolean): EngineSystemSpec => base({
+    species: ['air', 'N2', 'H2O', 'H2', 'He'],
+    nodes: [
+      { id: 'ch', volume: 30, label: 'chamber', surfaces: [{ area: 4000, material: 'ss304' }] },
+      ...(dry ? [{ id: 'n2res', volume: 1, fixed: { N2: 800 } as Partial<Record<GasId, number>>, label: 'N2 line' }] : []),
+    ],
+    edges: [{
+      id: 'vent', a: 'ch', b: dry ? 'n2res' : '_atm',
+      conductance: { kind: 'tube', d: 1.6, L: 5 }, open: 0,
+    }],
+    pumps: [{ id: 'p1', node: 'ch', model: { kind: 'displacement', sPeak: 8, pUlt: 1e-8 }, on: true }],
+  });
+
+  it('venting with dry N2 keeps the walls dry — re-pumpdown carries ~50× less water than an air vent', () => {
+    const run = (dry: boolean) => {
+      const sim = new Sim(ventedSys(dry));
+      sim.advance(3600); // pump to base
+      sim.applyAction({ type: 'valve', edgeId: 'vent', open: 1 });
+      sim.advance(900); // chamber floods to ~atmosphere
+      expect(sim.pressureOf('ch')).toBeGreaterThan(300);
+      sim.applyAction({ type: 'valve', edgeId: 'vent', open: 0 });
+      sim.advance(7200); // re-pump for 2 h
+      return sim;
+    };
+    const humid = run(false);
+    const dry = run(true);
+    // the exposure clock reset identically for both — only the recorded
+    // humidity of the vent gas differs
+    expect(humid.net.surfaces[0].ventRH).toBeGreaterThan(40);
+    expect(humid.net.surfaces[0].ventRH).toBeLessThan(60);
+    expect(dry.net.surfaces[0].ventRH).toBeLessThan(2);
+    const ratio = humid.partialOf('ch', 'H2O') / dry.partialOf('ch', 'H2O');
+    expect(ratio).toBeGreaterThan(10);
   });
 });
 
