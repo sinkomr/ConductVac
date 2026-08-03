@@ -86,6 +86,14 @@ export function Palette() {
               </button>
               {open && (
                 <div className="cat-list">
+                  {cat === 'Pumps' && (
+                    <button
+                      className="part-btn pb-launch"
+                      onClick={() => useStore.getState().setPumpBrowser({})}
+                    >
+                      ⧉ Compare pumps (S–p curves)…
+                    </button>
+                  )}
                   {entry.flat.map(partBtn)}
                   {[...entry.subs.entries()].map(([sub, parts]) => {
                     const subKey = `${cat}:${sub}`;

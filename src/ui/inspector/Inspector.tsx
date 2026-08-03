@@ -142,6 +142,14 @@ export function Inspector() {
         </button>
       )}
       {def.kind === 'leakdetector' && <LeakDetectorReadout partId={inst.id} />}
+      {def.kind === 'pump' && (
+        <button
+          className="btn"
+          onClick={() => useStore.getState().setPumpBrowser({ initial: String(def.data.pumpId ?? '') })}
+        >
+          ⧉ Browse pump catalog
+        </button>
+      )}
       {(def.kind === 'pump' || def.kind.startsWith('coldtrap')) && <CapacityReadout partId={inst.id} />}
       {TEMP_KINDS.includes(def.kind) && <TemperatureBlock partId={inst.id} />}
       <div className="btn-row">

@@ -46,6 +46,8 @@ Load an example from the header dropdown (the scroll + turbo crossover is a good
 - **Gas flow tab** now opens with a per-chamber diagnosis: *conductance-limited* (names the worst-drop element and its pressure ratio), *pump-limited*, *gas-load-limited* or *leak-limited*, with one-click culprit highlighting on the schematic. Permeation is split from outgassing in the Sankey.
 - Capture pumps (cryo, NEG, sorption, LN₂ traps) show **capacity fill bars** on their symbols and per-species sorbed inventory in the inspector.
 - **Lesson notes**: example scripts carry commentary that surfaces above the tab bar as the sim reaches each event; add your own in the Event script editor's note field.
+- **📌 Pin a run** (strip-chart toolbar): freeze the current curves as a dashed ghost, change one thing — a hose, a pump, a bake — Reset, Run again, and read exactly what the change bought you.
+- **⧉ Pump catalog browser** (Pumps palette, or any placed pump's inspector): honest S(p) curves sampled from the simulation's own pump models — rolloff knees, ultimate pressures, ion bells, critical backing — with one-click placement.
 
 ![RGA water ladder (18/17/16) hours into a 150 °C bake](docs/screenshot-rga.png)
 

@@ -31,6 +31,19 @@ export interface ChartHistory {
 
 export const chartHistory: ChartHistory = { gaugeIds: [], labels: [], t: [], values: [], truths: [] };
 
+/**
+ * A pinned copy of a whole run for A/B comparison. It lives OUTSIDE the
+ * store and outside chartHistory, so Reset / re-run / system edits leave it
+ * alone by construction — that is the point: change one thing and compare.
+ */
+export interface PinnedRun {
+  history: ChartHistory;
+  t: number;
+  label: string;
+}
+let pinnedRun: PinnedRun | null = null;
+export const getPinnedRun = (): PinnedRun | null => pinnedRun;
+
 function resetChartHistory(gaugeIds: string[], labels: string[]) {
   chartHistory.gaugeIds = gaugeIds;
   chartHistory.labels = labels;
@@ -140,6 +153,10 @@ interface AppState {
   bottomTab: 'charts' | 'flow' | 'species' | 'script' | 'log' | 'rga';
   /** bumped whenever the undo/redo stacks change (they live outside the store) */
   histTick: number;
+  /** bumped whenever the pinned comparison run changes (it lives outside the store) */
+  pinTick: number;
+  /** pump catalog browser overlay (null = closed) */
+  pumpBrowser: { initial?: string } | null;
 
   // builder actions
   setPlacing(defId: string | null): void;
@@ -198,6 +215,10 @@ interface AppState {
   requestFit(): void;
   setBottomTab(t: AppState['bottomTab']): void;
   setHighlightParts(ids: string[] | null): void;
+  /** snapshot the current chart history as the comparison ghost */
+  pinRun(): void;
+  clearPin(): void;
+  setPumpBrowser(v: { initial?: string } | null): void;
 }
 
 // undo stack outside the store; histTick lets the UI derive button states
@@ -329,6 +350,8 @@ export const useStore = create<AppState>((set, get) => ({
   highlightParts: null,
   bottomTab: 'charts',
   histTick: 0,
+  pinTick: 0,
+  pumpBrowser: null,
 
   setPlacing: (defId) => set({ placing: defId, connectFrom: null, paletteOpen: false }),
 
@@ -708,6 +731,21 @@ export const useStore = create<AppState>((set, get) => ({
   requestFit: () => set({ fitTick: get().fitTick + 1 }),
   setBottomTab: (t) => set({ bottomTab: t }),
   setHighlightParts: (ids) => set({ highlightParts: ids }),
+
+  pinRun: () => {
+    if (chartHistory.t.length === 0) return;
+    pinnedRun = {
+      history: JSON.parse(JSON.stringify(chartHistory)) as ChartHistory,
+      t: get().snapshot?.t ?? 0,
+      label: `pinned at t = ${formatSimTime(get().snapshot?.t ?? 0)}`,
+    };
+    set({ pinTick: get().pinTick + 1 });
+  },
+  clearPin: () => {
+    pinnedRun = null;
+    set({ pinTick: get().pinTick + 1 });
+  },
+  setPumpBrowser: (v) => set({ pumpBrowser: v }),
 }));
 
 // ------------------------------------------------------------- test hooks ----
@@ -723,6 +761,7 @@ export function _resetForTests(): void {
   undoStack.length = 0;
   redoStack.length = 0;
   worker = null;
+  pinnedRun = null;
   useStore.setState({
     system: emptySystem(),
     selection: [], connectFrom: null, placing: null,
