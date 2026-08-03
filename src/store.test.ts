@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  UNIT_FACTOR, _resetForTests, _setWorkerFactory, formatPressure, redoDepth, undoDepth, useStore,
+  UNIT_FACTOR, _resetForTests, _setWorkerFactory, chartHistory, formatPressure,
+  getPinnedRun, redoDepth, undoDepth, useStore,
 } from './store';
+import type { SimSnapshot } from './types';
 import { PART_BY_ID } from './data/fittings';
 import type { WorkerCmd } from './engine/worker';
 
@@ -163,6 +165,33 @@ describe('worker seam', () => {
 
     fake.onmessage!({ data: { type: 'loaded', gaugeIds: [] } } as MessageEvent);
     expect(st().simLoaded).toBe(true);
+  });
+});
+
+describe('pinned comparison run', () => {
+  it('pinRun deep-copies the chart history and survives the worker reset a re-run causes', () => {
+    chartHistory.gaugeIds = ['g1'];
+    chartHistory.labels = ['g1 · pirani'];
+    chartHistory.t = [0, 1, 2];
+    chartHistory.values = [[7, 6, 5]];
+    chartHistory.truths = [[7, 6, 5]];
+    useStore.setState({ snapshot: { t: 2 } as SimSnapshot });
+    st().pinRun();
+    const pin = getPinnedRun();
+    expect(pin?.history.t).toEqual([0, 1, 2]);
+    expect(pin?.label).toContain('pinned at');
+
+    // a re-run makes the worker report 'loaded', wiping the LIVE history —
+    // the pinned copy must not move
+    st().addPart(CHAMBER, 2, 2);
+    st().loadSim(false);
+    fake.onmessage!({ data: { type: 'loaded', gaugeIds: ['g1'] } } as MessageEvent);
+    expect(chartHistory.t).toEqual([]);
+    expect(getPinnedRun()?.history.t).toEqual([0, 1, 2]);
+    expect(getPinnedRun()?.history.values[0]).toEqual([7, 6, 5]);
+
+    st().clearPin();
+    expect(getPinnedRun()).toBeNull();
   });
 });
 

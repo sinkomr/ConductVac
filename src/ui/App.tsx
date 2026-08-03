@@ -10,6 +10,7 @@ import { LessonTicker } from './controls/LessonTicker';
 import { Sankey } from './sankey/Sankey';
 import { SpeciesPanel } from './SpeciesPanel';
 import { RgaPanel } from './rga/RgaPanel';
+import { PumpBrowser } from './catalog/PumpBrowser';
 import { redoDepth, undoDepth, useStore, type PressureUnit } from '../store';
 import { EXAMPLES } from '../examples';
 import { encodeSystem } from '../share';
@@ -202,6 +203,7 @@ export function App() {
           {bottomTab === 'log' && <EventLog />}
         </div>
       </footer>
+      {useStore((s2) => s2.pumpBrowser) && <PumpBrowser />}
     </div>
   );
 }
