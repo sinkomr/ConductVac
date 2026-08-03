@@ -13,9 +13,9 @@ Build an arbitrary vacuum system from a parts library (chambers, tubes, fittings
 
 Everything runs in a Web Worker; nothing leaves your machine. Save/load systems as JSON.
 
-![Builder with live pressure colormap during a scripted rough-down](docs/screenshot-builder.png)
+![Builder with live pressure colormap just after a scripted turbo crossover](docs/screenshot-builder.png)
 
-![Gas-load flow view](docs/screenshot-sankey.png)
+![Per-chamber diagnosis naming and highlighting the 2 m KF25 hose as the bottleneck](docs/screenshot-sankey.png)
 
 ## Quick start
 
@@ -27,7 +27,7 @@ npm run build      # static production build in dist/
 npm run smoke      # headless browser pass over dist/: every example must render clean
 ```
 
-Load an example from the header dropdown (the scroll + turbo crossover is a good first tour), press **Run**, and raise the speed. Double-click the gate valve mid-rough-down to see why crossover discipline matters.
+Load an example from the header dropdown (the scroll + turbo crossover is a good first tour), press **Run**, and raise the speed. The examples narrate themselves — a lesson line appears above the tabs as the script reaches each teaching moment. Double-click the gate valve mid-rough-down to see why crossover discipline matters.
 
 ## Building systems
 
@@ -45,6 +45,9 @@ Load an example from the header dropdown (the scroll + turbo crossover is a good
 - **RGA tab**: place an *RGA head* (Gauges palette) on any port and watch a live m/z spectrum — standard cracking patterns (H₂O → 18/17/16, N₂ → 28/14, CO₂ → 44/28/16/12), ionization-sensitivity weighting, filament interlock above 1e-4 Torr.
 - **Gas flow tab** now opens with a per-chamber diagnosis: *conductance-limited* (names the worst-drop element and its pressure ratio), *pump-limited*, *gas-load-limited* or *leak-limited*, with one-click culprit highlighting on the schematic. Permeation is split from outgassing in the Sankey.
 - Capture pumps (cryo, NEG, sorption, LN₂ traps) show **capacity fill bars** on their symbols and per-species sorbed inventory in the inspector.
+- **Lesson notes**: example scripts carry commentary that surfaces above the tab bar as the sim reaches each event; add your own in the Event script editor's note field.
+
+![RGA water ladder (18/17/16) hours into a 150 °C bake](docs/screenshot-rga.png)
 
 ## Temperature & failure drills
 
@@ -55,11 +58,13 @@ Load an example from the header dropdown (the scroll + turbo crossover is a good
 - **Warming cryo surfaces re-release their ice**: switch off a cryopump or LN₂ trap and its sorbed inventory comes back, species by species as the head crosses each release temperature — but the gas phase pins at saturation and the rest sits as "regen dew" on the chamber walls, mass-balanced.
 - **Vent gas matters**: the walls remember the humidity of the last gas that flooded them. Vent to air and the re-pumpdown fights re-adsorbed water; vent through a **gas admit valve** on dry N₂ and it carries ~50× less — the classic discipline, now simulated.
 
+![Power-fail drill: the site goes dark and the turbo coasts while the chamber floods](docs/screenshot-powerfail.png)
+
 ## Sharing & files
 
 - **🔗 Share** compresses the whole system into the URL (`#s=…`) and copies the link — no server, no account; opening the link restores the exact build.
-- Your current system autosaves to the browser (localStorage) and is restored on the next visit; **Save/Load JSON** remain for real files.
-- **SVG/PNG** export the schematic as a standalone image, colormap and labels included.
+- Your current system autosaves to the browser (localStorage) and is restored on the next visit; the **File ▾** menu holds Save/Load JSON for real files plus the schematic exports.
+- **SVG/PNG** (File ▾) export the schematic as a standalone image, colormap and labels included.
 
 ---
 

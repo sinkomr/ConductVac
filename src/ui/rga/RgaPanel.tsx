@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { PART_BY_ID } from '../../data/fittings';
 import { RGA_MAX_MZ, buildSpectrum } from '../../data/cracking';
 import { formatPressure, nodePartials, nodePressures, useStore } from '../../store';
@@ -26,6 +26,19 @@ export function RgaPanel() {
   const unit = useStore((s) => s.unit);
   const chartTick = useStore((s) => s.chartTick);
   const [sel, setSel] = useState<string | null>(null);
+  // container-measured plot width so the spectrum fits phones (was fixed 740)
+  const [panelW, setPanelW] = useState(740);
+  const roRef = useRef<ResizeObserver | null>(null);
+  const hostRef = (el: HTMLDivElement | null) => {
+    roRef.current?.disconnect();
+    roRef.current = null;
+    if (el) {
+      const ro = new ResizeObserver(() =>
+        setPanelW(Math.max(300, Math.min(900, el.clientWidth - 12))));
+      ro.observe(el);
+      roRef.current = ro;
+    }
+  };
 
   const rgas = system.parts.filter((p) => PART_BY_ID[p.def]?.kind === 'rga');
   if (rgas.length === 0) {
@@ -52,7 +65,7 @@ export function RgaPanel() {
   const lTop = Math.log10(top);
   const lFloor = Math.log10(FLOOR);
 
-  const W = 740;
+  const W = panelW;
   const H = 190;
   const plotH = H - 28;
   const bw = W / (RGA_MAX_MZ + 1);
@@ -63,7 +76,7 @@ export function RgaPanel() {
     .slice(0, 6);
 
   return (
-    <div className="rga-panel">
+    <div className="rga-panel" ref={hostRef}>
       <div className="chart-toolbar">
         {rgas.length > 1 && (
           <select value={active.id} onChange={(e) => setSel(e.target.value)}>

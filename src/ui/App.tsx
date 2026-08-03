@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Palette } from './builder/Palette';
 import { Canvas } from './builder/Canvas';
 import { Inspector } from './inspector/Inspector';
@@ -6,10 +6,11 @@ import { Controls } from './controls/Controls';
 import { StripCharts } from './charts/StripCharts';
 import { ScriptEditor } from './controls/ScriptEditor';
 import { EventLog } from './controls/EventLog';
+import { LessonTicker } from './controls/LessonTicker';
 import { Sankey } from './sankey/Sankey';
 import { SpeciesPanel } from './SpeciesPanel';
 import { RgaPanel } from './rga/RgaPanel';
-import { useStore, type PressureUnit } from '../store';
+import { redoDepth, undoDepth, useStore, type PressureUnit } from '../store';
 import { EXAMPLES } from '../examples';
 import { encodeSystem } from '../share';
 import { downloadBlob } from './download';
@@ -18,10 +19,43 @@ import type { SystemDefinition } from '../types';
 
 const fileStem = (name: string) => name.replace(/\s+/g, '-').toLowerCase() || 'system';
 
+/** Save/Load/export collected under one dropdown to unclutter the topbar. */
+function FileMenu({ items }: { items: { label: string; run: () => void }[] }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener('pointerdown', close);
+    return () => window.removeEventListener('pointerdown', close);
+  }, [open]);
+  return (
+    <span className="menu-wrap" onPointerDown={(e) => e.stopPropagation()}>
+      <button className="btn" onClick={() => setOpen(!open)}>File ▾</button>
+      {open && (
+        <div className="menu-list">
+          {items.map((it) => (
+            <button
+              key={it.label}
+              className="menu-item"
+              onClick={() => {
+                setOpen(false);
+                it.run();
+              }}
+            >
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
 export function App() {
   const system = useStore((s) => s.system);
   const bottomTab = useStore((s) => s.bottomTab);
   const unit = useStore((s) => s.unit);
+  useStore((s) => s.histTick); // undo/redo stacks are module state; re-render on changes
   const st = useStore.getState;
   const fileRef = useRef<HTMLInputElement>(null);
   const [shared, setShared] = useState(false);
@@ -102,20 +136,24 @@ export function App() {
           ))}
         </select>
         <button className="btn" onClick={() => st().newSystem()}>New</button>
-        <button className="btn" onClick={save}>Save JSON</button>
-        <button className="btn" onClick={() => fileRef.current?.click()}>Load JSON</button>
+        <FileMenu
+          items={[
+            { label: 'Save JSON', run: save },
+            { label: 'Load JSON…', run: () => fileRef.current?.click() },
+            { label: 'Export schematic SVG', run: exportSvg },
+            { label: 'Export schematic PNG', run: () => void exportPng() },
+          ]}
+        />
         <button className="btn" onClick={share} title="copy a link that opens this exact system">
           {shared ? 'Copied ✓' : '🔗 Share'}
         </button>
-        <button className="btn" onClick={exportSvg} title="download the schematic as SVG">SVG</button>
-        <button className="btn" onClick={exportPng} title="download the schematic as PNG">PNG</button>
         <input
           ref={fileRef} type="file" accept=".json" style={{ display: 'none' }}
           onChange={(e) => e.target.files?.[0] && load(e.target.files[0])}
         />
         <span className="spacer" />
-        <button className="btn" onClick={() => st().undo()} title="Ctrl+Z">↶</button>
-        <button className="btn" onClick={() => st().redo()} title="Ctrl+Shift+Z">↷</button>
+        <button className="btn" onClick={() => st().undo()} title="Ctrl+Z" disabled={undoDepth() === 0}>↶</button>
+        <button className="btn" onClick={() => st().redo()} title="Ctrl+Shift+Z" disabled={redoDepth() === 0}>↷</button>
         <label className="unit-label">
           units
           <select value={unit} onChange={(e) => st().setUnit(e.target.value as PressureUnit)}>
@@ -143,6 +181,7 @@ export function App() {
         )}
       </main>
       <footer className="bottom">
+        <LessonTicker />
         <div className="tabbar">
           {tabs.map(([id, label]) => (
             <button
