@@ -22,8 +22,8 @@ class B {
     this.connections.push({ id: `c${this.n++}`, a: { part: a, port: ap }, b: { part: b, port: bp } });
   }
 
-  at(t: number, action: SimEventAction) {
-    this.script.push({ id: `ev${this.n++}`, t, action });
+  at(t: number, action: SimEventAction, note?: string) {
+    this.script.push({ id: `ev${this.n++}`, t, action, ...(note ? { note } : {}) });
   }
 
   build(name: string): SystemDefinition {
@@ -52,7 +52,8 @@ function example1(): SystemDefinition {
   b.join('hose1', 1, 'rv1', 0);
 
   b.at(0, { type: 'pump', pumpId: 'rv1', on: true });
-  b.at(2, { type: 'valve', edgeId: 'ball1', open: 1 });
+  b.at(2, { type: 'valve', edgeId: 'ball1', open: 1 },
+    'Rough-down basics: constant pumping speed makes log-p fall in a straight line. The curve flattens as the RV nears its 1e-3 Torr ultimate — and the two gauges disagree on the way down because each reads its own gas-dependent physics.');
   return b.build('Example 1 — RV rough-down of a 50 L chamber');
 }
 
@@ -87,10 +88,14 @@ function example2(): SystemDefinition {
   b.join('chamber1', 5, 'leak1', 0);
 
   b.at(0, { type: 'pump', pumpId: 'scroll1', on: true });
-  b.at(1, { type: 'valve', edgeId: 'rough1', open: 1 });
-  b.at(120, { type: 'valve', edgeId: 'rough1', open: 0 });
-  b.at(125, { type: 'pump', pumpId: 'turbo1', on: true });
-  b.at(420, { type: 'valve', edgeId: 'gate1', open: 1 });
+  b.at(1, { type: 'valve', edgeId: 'rough1', open: 1 },
+    'Roughing through the KF25 line while the turbo branch stays closed — a turbo cannot swallow atmosphere.');
+  b.at(120, { type: 'valve', edgeId: 'rough1', open: 0 },
+    'Rough valve closed near 1 Torr; from here the scroll switches to backing duty behind the turbo.');
+  b.at(125, { type: 'pump', pumpId: 'turbo1', on: true },
+    'Turbo spinning up (τ ≈ 90 s). It only compresses — it must exhaust into the rough vacuum the scroll maintains.');
+  b.at(420, { type: 'valve', edgeId: 'gate1', open: 1 },
+    'Crossover: the gate opens only with the turbo at speed and the chamber roughed — two decades in seconds. Try re-running and opening it at 10 Torr instead: the turbo stalls on the gas load.');
   return b.build('Example 2 — scroll + turbo with scripted crossover');
 }
 
@@ -115,8 +120,10 @@ function example3(): SystemDefinition {
   b.join('tee1', 1, 'adap1', 0);
   b.join('adap1', 1, 'tc1', 0);
 
-  b.at(0, { type: 'pump', pumpId: 'rv1', on: true });
-  b.at(120, { type: 'pump', pumpId: 'diff1', on: true });
+  b.at(0, { type: 'pump', pumpId: 'rv1', on: true },
+    'An O-ring-sealed bell jar: the Viton gasket both outgasses and PERMEATES He and H2O straight through the bulk.');
+  b.at(120, { type: 'pump', pumpId: 'diff1', on: true },
+    'Diffusion pump boiler heating (~15 min, no moving parts). The system will bottom out near 1e-8 — not because the pump is weak, but because permeation is a floor no pump can fix. Check the Gas flow tab.');
   return b.build('Example 3 — bell jar + diffusion pump (permeation floor)');
 }
 
@@ -126,6 +133,7 @@ function example4(): SystemDefinition {
   const b = new B();
   b.part('chamber-cyl', 'chamber1', 7, 2, { D: 200, L: 300, portFlange: 'CF63', material: 'ss-ep' });
   b.part('gauge-hotcathode', 'ba1', 9, 0.5, { portFlange: 'CF63' });
+  b.part('rga', 'rga1', 5.5, 0.5, { portFlange: 'CF63' });
   b.part('gate-CF63', 'gate1', 13, 3.4);
   b.part('pump-turbo-80', 'turbo1', 15.5, 2.5);
   b.part('flex-KF16', 'hose1', 19, 4, { length: 500 });
@@ -136,6 +144,7 @@ function example4(): SystemDefinition {
   b.part('pump-neg-100', 'neg1', 3, 6);
 
   b.join('chamber1', 0, 'ba1', 0);
+  b.join('chamber1', 6, 'rga1', 0);
   b.join('chamber1', 1, 'gate1', 0);
   b.join('gate1', 1, 'turbo1', 0);
   b.join('turbo1', 1, 'hose1', 0);
@@ -148,10 +157,14 @@ function example4(): SystemDefinition {
   b.at(0, { type: 'pump', pumpId: 'scroll1', on: true });
   b.at(5, { type: 'valve', edgeId: 'gate1', open: 1 });
   b.at(30, { type: 'pump', pumpId: 'turbo1', on: true });
-  b.at(1800, { type: 'bakeStart', nodeIds: 'all', temperatureC: 150 });
-  b.at(1800 + 24 * 3600, { type: 'bakeEnd', nodeIds: 'all' });
-  b.at(1800 + 24 * 3600 + 7200, { type: 'pump', pumpId: 'ion1', on: true });
-  b.at(1800 + 24 * 3600 + 7200 + 60, { type: 'pump', pumpId: 'neg1', on: true });
+  b.at(1800, { type: 'bakeStart', nodeIds: 'all', temperatureC: 150 },
+    'Bake at 150 °C: outgassing jumps ~×147 (×10 per 60 °C) and pressure RISES. That is the point — drive the water out now, not during your experiment. Watch the RGA: mass 18 towers over everything.');
+  b.at(1800 + 24 * 3600, { type: 'bakeEnd', nodeIds: 'all' },
+    'Bake done: the accumulated hot hours flip the surfaces to baked — H2O outgassing is permanently down ×100.');
+  b.at(1800 + 24 * 3600 + 7200, { type: 'pump', pumpId: 'ion1', on: true },
+    'Ion pump on — it only starts below ~1e-4 Torr. Vibration-free, no moving parts, no exhaust.');
+  b.at(1800 + 24 * 3600 + 7200 + 60, { type: 'pump', pumpId: 'neg1', on: true },
+    'NEG activated: it chemically soaks up H2, the gas a well-baked system is made of. The RGA now shows mass 2 dominating — that is what 1e-10 Torr looks like.');
   return b.build('Example 4 — UHV bakeout: turbo + ion + NEG → 1e-10 Torr');
 }
 
@@ -202,10 +215,12 @@ function example5(): SystemDefinition {
   b.join('adap-scroll', 1, 'scroll', 0);
 
   b.at(0, { type: 'pump', pumpId: 'scroll', on: true });
-  b.at(2, { type: 'valve', edgeId: 'roughvalve', open: 1 });
+  b.at(2, { type: 'valve', edgeId: 'roughvalve', open: 1 },
+    'Viscous roughing: at high pressure the 2 m KF25 hose conducts fine — conductance scales with pressure here, so the constriction hides.');
   b.at(360, { type: 'valve', edgeId: 'roughvalve', open: 0 });
   b.at(365, { type: 'pump', pumpId: 'turbo', on: true });
-  b.at(600, { type: 'valve', edgeId: 'gate', open: 1 });
+  b.at(600, { type: 'valve', edgeId: 'gate', open: 1 },
+    'Molecular flow changes everything: the same hose is now ~0.4 L/s. The manifold reads the turbo\'s floor while the big chamber hangs two decades higher. The Gas flow tab names the hose as the bottleneck — highlight it.');
   return b.build('Example 5 — constriction: a long KF25 hose starves a 100 L chamber');
 }
 
@@ -227,7 +242,8 @@ function example6(): SystemDefinition {
   b.join('ball1', 1, 'scroll1', 0);
 
   b.at(0, { type: 'pump', pumpId: 'scroll1', on: true });
-  b.at(2, { type: 'valve', edgeId: 'ball1', open: 1 });
+  b.at(2, { type: 'valve', edgeId: 'ball1', open: 1 },
+    'Looks like a normal rough-down — then the curve refuses to keep falling. A trapped cm³ of air (an unvented screw hole) bleeds out through ~1e-6 L/s: the virtual leak. He-spray finds nothing, because there is no hole to the outside.');
   return b.build('Example 6 — trapped volume (virtual leak) signature');
 }
 
@@ -249,7 +265,8 @@ function starter(): SystemDefinition {
   b.join('hose', 1, 'pump', 0);
 
   b.at(0, { type: 'pump', pumpId: 'pump', on: true });
-  b.at(2, { type: 'valve', edgeId: 'valve', open: 1 });
+  b.at(2, { type: 'valve', edgeId: 'valve', open: 1 },
+    'Your first pump-down. Once it settles, double-click the vent valve: air floods back in, the gauge slams to ATM — close it and pump down again. Every part is clickable; the inspector edits it.');
   return b.build('Starter — first pump-down (try venting it live!)');
 }
 
@@ -304,13 +321,19 @@ function coater(): SystemDefinition {
 
   b.at(0, { type: 'pump', pumpId: 'rv', on: true });
   b.at(2, { type: 'valve', edgeId: 'roughvalve', open: 1 });
-  b.at(10, { type: 'pump', pumpId: 'diff', on: true }); // heater on early (15 min warm-up)
+  b.at(10, { type: 'pump', pumpId: 'diff', on: true },
+    'Diffusion heater on EARLY — the boiler needs ~15 min, so it warms up while the RV roughs the chamber.');
   b.at(300, { type: 'valve', edgeId: 'roughvalve', open: 0 });
-  b.at(305, { type: 'pump', pumpId: 'trap', on: true }); // fill the trap before crossover
-  b.at(310, { type: 'pump', pumpId: 'meissner', on: true });
-  b.at(1600, { type: 'valve', edgeId: 'gate', open: 1 }); // diffusion pump hot: crossover
-  b.at(3600, { type: 'valve', edgeId: 'argon', open: 1 }); // process: Ar backfill
-  b.at(4800, { type: 'valve', edgeId: 'argon', open: 0 }); // process done, recover
+  b.at(305, { type: 'pump', pumpId: 'trap', on: true },
+    'LN2 trap cold BEFORE crossover: it blocks oil backstreaming into the chamber and pumps water right at the throat.');
+  b.at(310, { type: 'pump', pumpId: 'meissner', on: true },
+    'Meissner coil on: a cold surface inside the chamber is the fastest water pump there is — no conductance in the way.');
+  b.at(1600, { type: 'valve', edgeId: 'gate', open: 1 },
+    'Crossover to the hot diffusion pump; the RV switches to backing duty through the shared foreline tee. The cable bundle payload now dominates the gas load — see the Gas flow tab.');
+  b.at(3600, { type: 'valve', edgeId: 'argon', open: 1 },
+    'Process: Ar admitted. Pressure settles where the admit rate balances the delivered pumping speed — watch Ar take over the Species tab.');
+  b.at(4800, { type: 'valve', edgeId: 'argon', open: 0 },
+    'Process done. Recovery is quick — under Ar the walls stayed clean, so there is no fresh water load to fight.');
   return b.build('Coating station — diffusion-pumped high vacuum with Ar process');
 }
 
@@ -365,17 +388,21 @@ function uhvLab(): SystemDefinition {
 
   const bakeEnd = 1800 + 24 * 3600;
   b.at(0, { type: 'pump', pumpId: 'scroll', on: true });
-  b.at(2, { type: 'valve', edgeId: 'roughvalve', open: 1 });
+  b.at(2, { type: 'valve', edgeId: 'roughvalve', open: 1 },
+    'Roughing through the all-metal angle valve on the chamber side — every elastomer joint lives beyond it, or its He permeation would haunt the ion pump forever.');
   b.at(240, { type: 'valve', edgeId: 'roughvalve', open: 0 });
   b.at(245, { type: 'pump', pumpId: 'turbo', on: true });
   b.at(600, { type: 'valve', edgeId: 'gate', open: 1 });
-  b.at(1800, { type: 'bakeStart', nodeIds: 'all', temperatureC: 150 });
+  b.at(1800, { type: 'bakeStart', nodeIds: 'all', temperatureC: 150 },
+    '150 °C for 24 h. The hot cathode stays OFF through the bake spike — enabled now it would just trip its filament.');
   b.at(bakeEnd, { type: 'bakeEnd', nodeIds: 'all' });
-  b.at(bakeEnd + 600, { type: 'gauge', gaugeId: 'ba', enabled: true });
+  b.at(bakeEnd + 600, { type: 'gauge', gaugeId: 'ba', enabled: true },
+    'Bayard-Alpert on now that the bake is over. Below ~3e-11 its X-ray limit lies to you — that is an instrument floor, not the chamber.');
   b.at(bakeEnd + 7200, { type: 'pump', pumpId: 'ion', on: true });
   b.at(bakeEnd + 7260, { type: 'pump', pumpId: 'neg', on: true });
   // the endgame: close the gate and let ion + NEG hold the chamber alone
-  b.at(bakeEnd + 14400, { type: 'valve', edgeId: 'gate', open: 0 });
+  b.at(bakeEnd + 14400, { type: 'valve', edgeId: 'gate', open: 0 },
+    'The endgame: gate CLOSED, turbo spun down — ion + NEG hold UHV alone, vibration-free. The Species tab shows what is left: hydrogen.');
   b.at(bakeEnd + 14460, { type: 'pump', pumpId: 'turbo', on: false });
   return b.build('Surface science — UHV bake, then ion+NEG hold with the gate closed');
 }

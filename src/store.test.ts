@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  UNIT_FACTOR, _resetForTests, _setWorkerFactory, formatPressure, useStore,
+  UNIT_FACTOR, _resetForTests, _setWorkerFactory, formatPressure, redoDepth, undoDepth, useStore,
 } from './store';
 import { PART_BY_ID } from './data/fittings';
 import type { WorkerCmd } from './engine/worker';
@@ -45,14 +45,21 @@ beforeEach(() => {
 
 describe('undo / redo', () => {
   it('round-trips edits and clears redo on a new edit', () => {
+    expect(undoDepth()).toBe(0);
+    expect(redoDepth()).toBe(0);
+    const tick0 = st().histTick;
     const a = st().addPart(CHAMBER, 2, 2);
     st().addPart(TUBE, 8, 3);
     expect(st().system.parts).toHaveLength(2);
+    expect(undoDepth()).toBe(2);
+    expect(st().histTick).toBeGreaterThan(tick0); // buttons re-derive from this
 
     st().undo();
     expect(st().system.parts.map((p) => p.id)).toEqual([a]);
+    expect(redoDepth()).toBe(1);
     st().redo();
     expect(st().system.parts).toHaveLength(2);
+    expect(redoDepth()).toBe(0);
 
     st().undo(); // back to 1 part
     st().addPart(VALVE, 5, 5); // divergent edit

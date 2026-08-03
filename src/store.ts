@@ -138,6 +138,8 @@ interface AppState {
   /** part ids tinted as bottleneck culprits (diagnosis highlight) */
   highlightParts: string[] | null;
   bottomTab: 'charts' | 'flow' | 'species' | 'script' | 'log' | 'rga';
+  /** bumped whenever the undo/redo stacks change (they live outside the store) */
+  histTick: number;
 
   // builder actions
   setPlacing(defId: string | null): void;
@@ -198,14 +200,19 @@ interface AppState {
   setHighlightParts(ids: string[] | null): void;
 }
 
-// undo stack outside the store
+// undo stack outside the store; histTick lets the UI derive button states
 const undoStack: string[] = [];
 const redoStack: string[] = [];
+const bumpHist = () => useStore.setState((s) => ({ histTick: s.histTick + 1 }));
 const pushUndo = (sys: SystemDefinition) => {
   undoStack.push(JSON.stringify(sys));
   if (undoStack.length > 100) undoStack.shift();
   redoStack.length = 0;
+  bumpHist();
 };
+
+export const undoDepth = (): number => undoStack.length;
+export const redoDepth = (): number => redoStack.length;
 
 // node pressures by engine node id — read by the colormap without re-render churn
 export const nodePressures = new Map<string, number>();
@@ -321,6 +328,7 @@ export const useStore = create<AppState>((set, get) => ({
   fitTick: 0,
   highlightParts: null,
   bottomTab: 'charts',
+  histTick: 0,
 
   setPlacing: (defId) => set({ placing: defId, connectFrom: null, paletteOpen: false }),
 
@@ -340,11 +348,12 @@ export const useStore = create<AppState>((set, get) => ({
   movePart: (id, x, y) => get().moveParts([{ id, x, y }]),
 
   // the Canvas captures JSON.stringify(system) on drag start and commits it
-  // here on drop; like moveParts this sets no state (positions don't compile)
+  // here on drop; like moveParts this leaves `system` untouched
   commitDragUndo: (preJson) => {
     undoStack.push(preJson);
     if (undoStack.length > 100) undoStack.shift();
     redoStack.length = 0;
+    bumpHist();
   },
 
   moveParts: (entries) => {
@@ -569,14 +578,14 @@ export const useStore = create<AppState>((set, get) => ({
     const prev = undoStack.pop();
     if (!prev) return;
     redoStack.push(JSON.stringify(get().system));
-    set({ system: JSON.parse(prev), stale: true, selection: [] });
+    set({ system: JSON.parse(prev), stale: true, selection: [], histTick: get().histTick + 1 });
   },
 
   redo: () => {
     const next = redoStack.pop();
     if (!next) return;
     undoStack.push(JSON.stringify(get().system));
-    set({ system: JSON.parse(next), stale: true, selection: [] });
+    set({ system: JSON.parse(next), stale: true, selection: [], histTick: get().histTick + 1 });
   },
 
   tidyWiring: () => {
@@ -720,6 +729,6 @@ export function _resetForTests(): void {
     compiled: null, warnings: [], stale: false,
     running: false, ffActive: false, snapshot: null, simLoaded: false,
     eventLog: [], chartTick: 0, flows: null,
-    unit: 'Torr', highlightParts: null,
+    unit: 'Torr', highlightParts: null, histTick: 0,
   });
 }

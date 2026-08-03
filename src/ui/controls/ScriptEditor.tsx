@@ -45,6 +45,8 @@ export function ScriptEditor() {
   const system = useStore((s) => s.system);
   const st = useStore.getState;
 
+  const kindOf = (partId: string) =>
+    PART_BY_ID[system.parts.find((p) => p.id === partId)?.def ?? '']?.kind ?? '';
   const partsOf = (kinds: string[]) =>
     system.parts.filter((p) => {
       const k = PART_BY_ID[p.def]?.kind ?? '';
@@ -62,7 +64,7 @@ export function ScriptEditor() {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <Row key={row.id} row={row} partsOf={partsOf} firstOf={firstOf} />
+            <Row key={row.id} row={row} partsOf={partsOf} firstOf={firstOf} kindOf={kindOf} />
           ))}
         </tbody>
       </table>
@@ -77,10 +79,11 @@ export function ScriptEditor() {
   );
 }
 
-function Row({ row, partsOf, firstOf }: {
+function Row({ row, partsOf, firstOf, kindOf }: {
   row: ScriptRow;
   partsOf: (kinds: string[]) => { id: string }[];
   firstOf: (kinds: string[]) => string;
+  kindOf: (partId: string) => string;
 }) {
   const st = useStore.getState;
   const a = row.action;
@@ -98,7 +101,18 @@ function Row({ row, partsOf, firstOf }: {
   let detail: JSX.Element;
   switch (a.type) {
     case 'valve':
-      detail = (
+      // the butterfly is the one continuous actuator: author a % directly
+      detail = kindOf(a.edgeId) === 'valve-butterfly' ? (
+        <>
+          {targetSelect(['valve'], a.edgeId, (v) => updAction({ ...a, edgeId: v }))}
+          <input
+            type="number" min={0} max={100} step={5}
+            value={Math.round(a.open * 100)}
+            onChange={(e) => updAction({ ...a, open: Math.max(0, Math.min(100, Number(e.target.value))) / 100 })}
+          />
+          <span>% open</span>
+        </>
+      ) : (
         <>
           {targetSelect(['valve'], a.edgeId, (v) => updAction({ ...a, edgeId: v }))}
           <select
@@ -273,7 +287,15 @@ function Row({ row, partsOf, firstOf }: {
           ))}
         </select>
       </td>
-      <td className="detail">{detail}</td>
+      <td className="detail">
+        {detail}
+        <input
+          className="note-input"
+          value={row.note ?? ''}
+          placeholder="lesson note (shown when the sim reaches this event)"
+          onChange={(e) => upd({ note: e.target.value || undefined })}
+        />
+      </td>
       <td>
         <button className="btn danger" onClick={() => st().deleteScriptRow(row.id)}>✕</button>
       </td>
