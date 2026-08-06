@@ -39,6 +39,8 @@ Load an example from the header dropdown (the scroll + turbo crossover is a good
 - **Multi-select**: shift-click parts to toggle them in and out of the selection, or shift-drag on empty canvas for a marquee; drag any member to move the group. `Ctrl+A` selects all, `Ctrl+C`/`Ctrl+V` copy/paste (internal wiring included), `Ctrl+D` duplicates.
 - Elastomer-sealed joints automatically contribute their wetted Viton area (outgassing **and** He/H₂O permeation).
 - Tube physics follows the *length property*, not the drawn length.
+- **Real hardware**: alongside the generic class-representative pumps and gauges, the catalog carries ~30 named commercial models (Agilent VHS-10 and VacIon, Pfeiffer HiPace and PKR 251, Edwards nXDS and nEXT, CTI Cryo-Torr, SAES CapaciTorr, MKS Baratron, Granville-Phillips Convectron, …) with **nominal datasheet values** — no affiliation, and always verify against current manufacturer data before real design work.
+- **Every pump is re-specable**: pumping speed (plus ultimate pressure for displacement pumps, or an overall size scale for cryo/NEG) is an editable parameter on each placed instance — the catalog value is just the default. Dial the generic 300 L/s diffusion pump up to a 3650 L/s VHS-10, or place the real one.
 
 ## Instruments & diagnosis
 

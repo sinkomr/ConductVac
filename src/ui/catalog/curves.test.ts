@@ -46,6 +46,13 @@ describe('speedCurve (sampled from the real PumpRuntime)', () => {
     expect(Math.abs(a - b) / a).toBeLessThan(0.05);
   });
 
+  it('Agilent VHS-10: the 3650 L/s plateau is what the engine will deliver', () => {
+    const c = speedCurve(modelOf('agilent-vhs10'));
+    const plateau = sAt(c, 1e-5); // air: sPeak · √(28/28.96) ≈ 0.983
+    expect(plateau).toBeGreaterThan(3400);
+    expect(plateau).toBeLessThanOrEqual(3650);
+  });
+
   it('every catalog entry produces a finite, non-negative curve', () => {
     for (const e of PUMP_CATALOG) {
       const c = speedCurve(e.model, 31);

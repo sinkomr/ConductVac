@@ -367,25 +367,93 @@ for (const p of PUMP_CATALOG) {
   if (p.model.kind === 'displacement' && p.model.hasBallast) {
     params.push({ key: 'ballast', label: 'Gas ballast', kind: 'boolean' });
   }
+  // per-instance editable specs: catalog values are only the defaults, so a
+  // generic pump can be dialed to any real datasheet (e.g. the 300 L/s
+  // diffusion pump re-speced as a 3650 L/s VHS-10)
+  const defaults: Record<string, number | boolean> = { on: false, ballast: false };
+  const scalarSpeed = typeof (p.model as { sPeak: unknown }).sPeak === 'number';
+  if (scalarSpeed) {
+    const s = (p.model as { sPeak: number }).sPeak;
+    params.push({ key: 'sPeak', label: 'Pumping speed', kind: 'number', unit: 'L/s', min: 0.01, max: 50000, step: s >= 50 ? 5 : 0.1 });
+    defaults.sPeak = s;
+  }
+  if (p.model.kind === 'displacement' || p.model.kind === 'sorption') {
+    params.push({ key: 'pUlt', label: 'Ultimate pressure', kind: 'log', unit: 'Torr', min: 1e-6, max: 20 });
+    defaults.pUlt = p.model.pUlt;
+  }
+  if (p.model.kind === 'cryo' || p.model.kind === 'neg') {
+    params.push({ key: 'scale', label: 'Size scale', kind: 'number', unit: '×', min: 0.05, max: 20, step: 0.05 });
+    defaults.scale = 1;
+  }
   add({
     id: `pump-${p.id}`, name: p.name, category: 'Pumps', sub: p.class, kind: 'pump',
     w: 3, h: 3, ports,
-    params, defaults: { on: false, ballast: false },
+    params, defaults,
     data: { pumpId: p.id, backed },
-    fidelity: `${p.notes} Values are class-representative approximations.`,
+    fidelity: p.brand
+      ? `${p.notes} Nominal values from public datasheets (no affiliation) — verify against current manufacturer data. Speed/ultimate are editable per instance.`
+      : `${p.notes} Values are class-representative approximations; speed/ultimate are editable per instance.`,
   });
 }
 
 // ----------------------------------------------------------------- gauges ----
 
-const GAUGE_PARTS: { type: GaugeType; name: string }[] = [
-  { type: 'bourdon', name: 'Bourdon / piezo' },
-  { type: 'capacitance', name: 'Capacitance manometer' },
-  { type: 'thermocouple', name: 'Thermocouple gauge' },
-  { type: 'pirani', name: 'Pirani gauge' },
-  { type: 'coldcathode', name: 'Cold cathode gauge' },
-  { type: 'hotcathode', name: 'Hot cathode (BA) gauge' },
-  { type: 'fullrange', name: 'Full-range gauge' },
+interface GaugePartEntry {
+  /** part id suffix; generic entries use the type itself for back-compat */
+  id: string;
+  type: GaugeType;
+  name: string;
+  /** manufacturer for real-hardware entries (nominal datasheet specs) */
+  brand?: string;
+  notes?: string;
+}
+
+const GAUGE_PARTS: GaugePartEntry[] = [
+  { id: 'bourdon', type: 'bourdon', name: 'Bourdon / piezo' },
+  { id: 'capacitance', type: 'capacitance', name: 'Capacitance manometer' },
+  { id: 'thermocouple', type: 'thermocouple', name: 'Thermocouple gauge' },
+  { id: 'pirani', type: 'pirani', name: 'Pirani gauge' },
+  { id: 'coldcathode', type: 'coldcathode', name: 'Cold cathode gauge' },
+  { id: 'hotcathode', type: 'hotcathode', name: 'Hot cathode (BA) gauge' },
+  { id: 'fullrange', type: 'fullrange', name: 'Full-range gauge' },
+
+  // real hardware (nominal datasheet ranges; the engine models the physics class)
+  {
+    id: 'gp275', type: 'pirani', name: 'Granville-Phillips 275 Convectron', brand: 'Granville-Phillips',
+    notes: 'Convection-enhanced Pirani, 1e-4…990 Torr. The de-facto roughing gauge of US labs.',
+  },
+  {
+    id: 'apg100', type: 'pirani', name: 'Edwards APG100-XM', brand: 'Edwards',
+    notes: 'Active Pirani transmitter, ~1e-4 mbar…atmosphere.',
+  },
+  {
+    id: 'gp531', type: 'thermocouple', name: 'Granville-Phillips 531', brand: 'Granville-Phillips',
+    notes: 'Classic thermocouple tube, ~1e-3…2 Torr.',
+  },
+  {
+    id: 'baratron626', type: 'capacitance', name: 'MKS Baratron 626C', brand: 'MKS',
+    notes: 'Gas-independent capacitance manometer; pick the decade full scale. Reads true total pressure — the reference everything else is checked against.',
+  },
+  {
+    id: 'baratron627', type: 'capacitance', name: 'MKS Baratron 627F (heated)', brand: 'MKS',
+    notes: 'Heated head keeps condensables out of the diaphragm cavity; same decades. Zero-drift knob applies as on any capacitance head.',
+  },
+  {
+    id: 'pkr251', type: 'fullrange', name: 'Pfeiffer PKR 251', brand: 'Pfeiffer',
+    notes: 'Pirani + cold-cathode combination, 5e-9…1000 mbar — exactly the full-range model simulated here, hand-off and all.',
+  },
+  {
+    id: 'ikr251', type: 'coldcathode', name: 'Pfeiffer IKR 251', brand: 'Pfeiffer',
+    notes: 'Inverted magnetron, ~2e-9…1e-2 mbar. Strike delay and ×2-class accuracy modeled.',
+  },
+  {
+    id: 'uhv24', type: 'hotcathode', name: 'Agilent UHV-24p (nude BA)', brand: 'Agilent',
+    notes: 'Nude Bayard-Alpert; real X-ray limit ~5e-12 Torr (the engine floors at the 3e-11 class value).',
+  },
+  {
+    id: 'gp360', type: 'hotcathode', name: 'Granville-Phillips 360 Stabil-Ion', brand: 'Granville-Phillips',
+    notes: 'Stabilized BA package with tighter calibration than a bare tube.',
+  },
 ];
 const FLANGE_SELECT: ParamDef = {
   key: 'portFlange', label: 'Flange', kind: 'select',
@@ -397,16 +465,18 @@ for (const g of GAUGE_PARTS) {
   if (g.type === 'capacitance') {
     params.push({
       key: 'fullScale', label: 'Full scale', kind: 'select',
-      options: [1000, 100, 1, 0.1].map((v) => ({ value: v, label: `${v} Torr` })),
+      options: [1000, 100, 10, 1, 0.1].map((v) => ({ value: v, label: `${v} Torr` })),
     });
   }
   add({
-    id: `gauge-${g.type}`, name: g.name, category: 'Gauges', kind: 'gauge',
+    id: `gauge-${g.id}`, name: g.name, category: 'Gauges', sub: g.brand ?? 'Generic', kind: 'gauge',
     w: 1, h: 1,
     ports: [{ x: 0.5, y: 1, flange: 'portFlange', dynamic: true }],
-    params, defaults: { enabled: true, fullScale: 1000, portFlange: 'KF16' },
+    params, defaults: { enabled: true, fullScale: 1000, portFlange: g.type === 'hotcathode' || g.type === 'coldcathode' ? 'CF40' : 'KF16' },
     data: { gaugeType: g.type },
-    fidelity: GAUGE_SPECS[g.type].notes,
+    fidelity: g.brand
+      ? `${g.notes ?? ''} Nominal values from public datasheets (no affiliation); the engine simulates the instrument class: ${GAUGE_SPECS[g.type].notes}`
+      : GAUGE_SPECS[g.type].notes,
   });
 }
 

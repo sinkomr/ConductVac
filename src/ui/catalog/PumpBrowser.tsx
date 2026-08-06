@@ -101,7 +101,10 @@ export function PumpBrowser() {
       <div className="pump-browser" onPointerDown={(e) => e.stopPropagation()}>
         <div className="pb-header">
           <b>Pump catalog</b>
-          <span className="hint">speed curves sampled from the simulation's own pump models</span>
+          <span className="hint">
+            curves sampled from the simulation's own pump models · branded entries carry nominal
+            datasheet values (no affiliation — verify before design work)
+          </span>
           <button className="btn" onClick={close}>✕</button>
         </div>
         <div className="pb-body">
@@ -125,12 +128,14 @@ export function PumpBrowser() {
             <h3>{entry.name}</h3>
             <CurvePlot entry={entry} />
             <div className="pb-facts">
+              {entry.brand && <span className="pb-brand">{entry.brand}</span>}
               <span>inlet {entry.inletFlange}</span>
               {entry.backingFlange && <span>backing {entry.backingFlange} (must be backed)</span>}
               {entry.model.kind === 'turbo' && <span>crit. backing {entry.model.pCritBack} Torr</span>}
               {entry.model.kind === 'diffusion' && <span>crit. backing {entry.model.pCritBack} Torr</span>}
             </div>
             <p className="hint">{entry.notes}</p>
+            <p className="hint">Every placed pump's speed{entry.model.kind === 'displacement' || entry.model.kind === 'sorption' ? ' and ultimate' : ''} is editable in the inspector — the catalog value is just the default.</p>
             <button
               className="btn primary"
               disabled={!placeable}
