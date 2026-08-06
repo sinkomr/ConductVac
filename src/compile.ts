@@ -277,12 +277,40 @@ export function compileSystem(sys: SystemDefinition): CompiledSystem {
 
       case 'pump': {
         const entry = PUMP_BY_ID[def.data.pumpId as string];
-        const inletVol = Math.max(0.05, entry.model.kind === 'turbo' || entry.model.kind === 'diffusion' ? 0.4 : 0.1);
+        // per-instance spec overrides: the catalog holds the DEFAULTS, so any
+        // pump can be re-speced from a datasheet (speed, ultimate, or an
+        // overall size scale for the per-species capture pumps)
+        const scaleMap = (m: Partial<Record<GasId, number>>, k: number): Partial<Record<GasId, number>> =>
+          Object.fromEntries(Object.entries(m).map(([g, v]) => [g, (v ?? 0) * k]));
+        let model = entry.model;
+        switch (model.kind) {
+          case 'displacement':
+          case 'sorption':
+            model = { ...model, sPeak: num('sPeak', model.sPeak), pUlt: num('pUlt', model.pUlt) };
+            break;
+          case 'roots':
+          case 'turbo':
+          case 'diffusion':
+          case 'ion':
+            model = { ...model, sPeak: num('sPeak', model.sPeak) };
+            break;
+          case 'cryo': {
+            const k = num('scale', 1);
+            if (k !== 1) model = { ...model, sPeak: scaleMap(model.sPeak, k), capacity: scaleMap(model.capacity, k) };
+            break;
+          }
+          case 'neg': {
+            const k = num('scale', 1);
+            if (k !== 1) model = { ...model, sPeak: scaleMap(model.sPeak, k), capacity: model.capacity * k };
+            break;
+          }
+        }
+        const inletVol = Math.max(0.05, model.kind === 'turbo' || model.kind === 'diffusion' ? 0.4 : 0.1);
         const a = junction(0, inletVol);
         let backing: string | undefined;
         if (def.data.backed) backing = junction(1, 0.05);
         pumps.push({
-          id, node: a, backingNode: backing, model: entry.model,
+          id, node: a, backingNode: backing, model,
           on: bool('on'), ballast: bool('ballast'), label: entry.name,
         });
         regionNode[`${id}:0`] = a;
