@@ -10,7 +10,7 @@ import { buildPaste, copyParts, type ClipboardData } from './clipboard';
 import { portPos } from './ui/builder/geometry';
 import type { ChartSample, WorkerCmd, WorkerMsg } from './engine/worker';
 import type { FlowReport } from './engine/report';
-import EngineWorker from './engine/worker?worker';
+import EngineWorker from './engine/workerCtor';
 
 // ------------------------------------------------------------ chart store ----
 

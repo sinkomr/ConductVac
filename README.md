@@ -62,6 +62,10 @@ Load an example from the header dropdown (the scroll + turbo crossover is a good
 
 ![Power-fail drill: the site goes dark and the turbo coasts while the chamber floods](docs/screenshot-powerfail.png)
 
+## Run it anywhere (offline)
+
+`npm run build:portable` produces **`dist-portable/conductvac.html`** — the whole app in one self-contained file (plus a ready-to-email zip). Double-click it and it runs entirely locally in any modern browser: no server, no install, no network access at any point. Everything is inlined, and the engine worker is spawned from a Blob URL — which is what lets it run from `file://`, where browsers refuse to load module and worker *files*. Only differences from the website: the Share button shows a copy-me prompt instead of silently reaching the clipboard (clipboard needs https), and autosave lives in that browser's localStorage.
+
 ## Sharing & files
 
 - **🔗 Share** compresses the whole system into the URL (`#s=…`) and copies the link — no server, no account; opening the link restores the exact build.

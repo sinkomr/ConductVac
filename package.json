@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "demo": "vitest run src/engine/tests/demo.headless.test.ts",
-    "smoke": "node scripts/smoke/smoke.mjs"
+    "smoke": "node scripts/smoke/smoke.mjs",
+    "build:portable": "node scripts/build-portable.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
