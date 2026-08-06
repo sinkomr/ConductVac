@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { compileSystem } from './compile';
-import { PART_BY_ID } from './data/fittings';
+import { PART_BY_ID, portFlange } from './data/fittings';
+import { PUMP_CATALOG } from './data/pumps';
 import type { PartInstance, SystemDefinition } from './types';
 
 /**
@@ -63,7 +64,7 @@ describe('real-hardware catalog entries', () => {
   it('the Agilent VHS-10 part exists at its nominal 3650 L/s on ISO250', () => {
     const def = PART_BY_ID['pump-agilent-vhs10'];
     expect(def).toBeDefined();
-    expect(def.ports[0].flange).toBe('ISO250');
+    expect(portFlange(def, 0, { ...def.defaults })).toBe('ISO250');
     const m = modelOf(sysOf([part('pump-agilent-vhs10')]));
     expect(m.kind === 'diffusion' && m.sPeak).toBe(3650);
   });
@@ -82,10 +83,38 @@ describe('real-hardware catalog entries', () => {
     }
   });
 
-  it('every branded pump entry has a placeable part def', () => {
-    const branded = Object.values(PART_BY_ID).filter(
-      (d) => d.kind === 'pump' && d.fidelity?.includes('datasheets'),
+  it('the branded sweep is broad, unique, and fully placeable', () => {
+    const branded = PUMP_CATALOG.filter((e) => e.brand);
+    expect(branded.length).toBeGreaterThanOrEqual(75);
+    const ids = PUMP_CATALOG.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length); // no id collisions
+    for (const e of PUMP_CATALOG) expect(PART_BY_ID[`pump-${e.id}`]).toBeDefined();
+    // at least six manufacturers represented
+    expect(new Set(branded.map((e) => e.brand)).size).toBeGreaterThanOrEqual(6);
+  });
+
+  it('branded gauges are broad too', () => {
+    const brandedGauges = Object.values(PART_BY_ID).filter(
+      (d) => d.kind === 'gauge' && d.sub && d.sub !== 'Generic',
     );
-    expect(branded.length).toBeGreaterThanOrEqual(18);
+    expect(brandedGauges.length).toBeGreaterThanOrEqual(15);
+  });
+});
+
+describe('editable pump flanges', () => {
+  it('inlet and backing flanges default to the catalog and follow the params', () => {
+    const def = PART_BY_ID['pump-pfeiffer-hipace80'];
+    expect(def.ports[0].dynamic).toBe(true);
+    expect(portFlange(def, 0, { ...def.defaults })).toBe('CF63');
+    expect(portFlange(def, 0, { ...def.defaults, inletFlange: 'ISO100' })).toBe('ISO100');
+    expect(portFlange(def, 1, { ...def.defaults })).toBe('KF16');
+    expect(portFlange(def, 1, { ...def.defaults, backingFlange: 'KF25' })).toBe('KF25');
+  });
+
+  it('unbacked pumps expose only the inlet flange', () => {
+    const def = PART_BY_ID['pump-cti-cryotorr8'];
+    expect(def.ports).toHaveLength(1);
+    expect(portFlange(def, 0, { ...def.defaults })).toBe('CF200');
+    expect(def.params.some((p) => p.key === 'backingFlange')).toBe(false);
   });
 });

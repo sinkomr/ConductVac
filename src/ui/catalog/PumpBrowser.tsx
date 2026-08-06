@@ -135,7 +135,7 @@ export function PumpBrowser() {
               {entry.model.kind === 'diffusion' && <span>crit. backing {entry.model.pCritBack} Torr</span>}
             </div>
             <p className="hint">{entry.notes}</p>
-            <p className="hint">Every placed pump's speed{entry.model.kind === 'displacement' || entry.model.kind === 'sorption' ? ' and ultimate' : ''} is editable in the inspector — the catalog value is just the default.</p>
+            <p className="hint">Every placed pump's speed{entry.model.kind === 'displacement' || entry.model.kind === 'sorption' ? ', ultimate' : ''} and flanges are editable in the inspector — the catalog values are just the defaults.</p>
             <button
               className="btn primary"
               disabled={!placeable}

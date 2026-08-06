@@ -359,10 +359,18 @@ add({
 
 // ------------------------------------------------------------------ pumps ----
 
+const flangeSelect = (key: string, label: string): ParamDef => ({
+  key, label, kind: 'select',
+  options: FLANGES.map((f) => ({ value: f.id, label: f.name })),
+});
+
 for (const p of PUMP_CATALOG) {
   const backed = p.model.kind === 'turbo' || p.model.kind === 'diffusion' || p.model.kind === 'roots';
-  const ports: PortDef[] = [{ x: 1.5, y: 0, flange: p.inletFlange }];
-  if (backed) ports.push({ x: 3, y: 1.5, flange: p.backingFlange ?? 'KF25' });
+  // dynamic flanges: the catalog value is only the default — real pumps ship
+  // with adapter options, and an editable flange feeds joint matching and the
+  // elastomer seal-area bookkeeping exactly like the gauges already do
+  const ports: PortDef[] = [{ x: 1.5, y: 0, flange: 'inletFlange', dynamic: true }];
+  if (backed) ports.push({ x: 3, y: 1.5, flange: 'backingFlange', dynamic: true });
   const params: ParamDef[] = [{ key: 'on', label: 'Running', kind: 'boolean' }];
   if (p.model.kind === 'displacement' && p.model.hasBallast) {
     params.push({ key: 'ballast', label: 'Gas ballast', kind: 'boolean' });
@@ -370,7 +378,7 @@ for (const p of PUMP_CATALOG) {
   // per-instance editable specs: catalog values are only the defaults, so a
   // generic pump can be dialed to any real datasheet (e.g. the 300 L/s
   // diffusion pump re-speced as a 3650 L/s VHS-10)
-  const defaults: Record<string, number | boolean> = { on: false, ballast: false };
+  const defaults: Record<string, number | boolean | string> = { on: false, ballast: false };
   const scalarSpeed = typeof (p.model as { sPeak: unknown }).sPeak === 'number';
   if (scalarSpeed) {
     const s = (p.model as { sPeak: number }).sPeak;
@@ -384,6 +392,12 @@ for (const p of PUMP_CATALOG) {
   if (p.model.kind === 'cryo' || p.model.kind === 'neg') {
     params.push({ key: 'scale', label: 'Size scale', kind: 'number', unit: '×', min: 0.05, max: 20, step: 0.05 });
     defaults.scale = 1;
+  }
+  params.push(flangeSelect('inletFlange', 'Inlet flange'));
+  defaults.inletFlange = p.inletFlange;
+  if (backed) {
+    params.push(flangeSelect('backingFlange', 'Backing flange'));
+    defaults.backingFlange = p.backingFlange ?? 'KF25';
   }
   add({
     id: `pump-${p.id}`, name: p.name, category: 'Pumps', sub: p.class, kind: 'pump',
@@ -454,11 +468,40 @@ const GAUGE_PARTS: GaugePartEntry[] = [
     id: 'gp360', type: 'hotcathode', name: 'Granville-Phillips 360 Stabil-Ion', brand: 'Granville-Phillips',
     notes: 'Stabilized BA package with tighter calibration than a bare tube.',
   },
+  {
+    id: 'gp355', type: 'hotcathode', name: 'Granville-Phillips 355 Micro-Ion', brand: 'Granville-Phillips',
+    notes: 'Miniature BA module, ~2e-9…5e-2 Torr.',
+  },
+  {
+    id: 'kjlc354', type: 'hotcathode', name: 'KJLC 354 Series ion gauge', brand: 'Kurt J. Lesker',
+    notes: 'Hot-cathode BA module with integrated electronics.',
+  },
+  {
+    id: 'mks925', type: 'pirani', name: 'MKS 925 MicroPirani', brand: 'MKS',
+    notes: 'MEMS Pirani transducer, ~1e-5…1000 Torr nominal span.',
+  },
+  {
+    id: 'mks972b', type: 'fullrange', name: 'MKS 972B DualMag', brand: 'MKS',
+    notes: 'Cold-cathode + MicroPirani combination, ~1e-8 Torr…atmosphere.',
+  },
+  {
+    id: 'edwards-wrg', type: 'fullrange', name: 'Edwards WRG-S', brand: 'Edwards',
+    notes: 'Wide-range gauge: inverted magnetron + Pirani in one head.',
+  },
+  {
+    id: 'leybold-ttr101', type: 'pirani', name: 'Leybold THERMOVAC TTR 101 N', brand: 'Leybold',
+    notes: 'Active Pirani transmitter, ~5e-5…1000 mbar.',
+  },
+  {
+    id: 'leybold-ptr90', type: 'fullrange', name: 'Leybold PENNINGVAC PTR 90 N', brand: 'Leybold',
+    notes: 'Penning + Pirani combination, ~5e-9…1000 mbar.',
+  },
+  {
+    id: 'instrutech-cvg101', type: 'pirani', name: 'InstruTech CVG101 Worker Bee', brand: 'InstruTech',
+    notes: 'Convection-enhanced Pirani transmitter, 1e-4…1000 Torr.',
+  },
 ];
-const FLANGE_SELECT: ParamDef = {
-  key: 'portFlange', label: 'Flange', kind: 'select',
-  options: FLANGES.map((f) => ({ value: f.id, label: f.name })),
-};
+const FLANGE_SELECT: ParamDef = flangeSelect('portFlange', 'Flange');
 
 for (const g of GAUGE_PARTS) {
   const params: ParamDef[] = [{ key: 'enabled', label: 'Enabled', kind: 'boolean' }, FLANGE_SELECT];
