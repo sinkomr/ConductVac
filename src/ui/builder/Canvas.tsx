@@ -16,15 +16,45 @@ interface Hover {
   inst: PartInstance;
 }
 
+/**
+ * Hover readout. Its own component so that IT re-renders on every 10 Hz
+ * snapshot — not the whole canvas, which would re-route every wire and
+ * re-resolve every port flange ten times a second while a sim runs.
+ */
+function PressureTooltip({ hover }: { hover: Hover }) {
+  useStore((s) => s.chartTick); // repaint on new pressures
+  const compiled = useStore((s) => s.compiled);
+  const unit = useStore((s) => s.unit);
+  const node = compiled?.regionNode[`${hover.inst.id}:0`] ?? compiled?.portNode[`${hover.inst.id}:0`];
+  const p = node ? nodePressures.get(node) : undefined;
+  if (p === undefined) return null;
+  const partials = node ? nodePartials.get(node) : undefined;
+  const species = useStore.getState().snapshot?.species;
+  return (
+    <div className="tooltip" style={{ left: hover.x + 14, top: hover.y + 10 }}>
+      <b>{hover.inst.id}</b> — {formatPressure(p, unit)}
+      {partials && species && (
+        <table>
+          <tbody>
+            {species.map((g, i) => (
+              <tr key={g}>
+                <td>{g}</td>
+                <td>{formatPressure(partials[i], unit)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 export function Canvas() {
   const system = useStore((s) => s.system);
   const selection = useStore((s) => s.selection);
   const connectFrom = useStore((s) => s.connectFrom);
   const placing = useStore((s) => s.placing);
-  const compiled = useStore((s) => s.compiled);
-  const unit = useStore((s) => s.unit);
   const highlightParts = useStore((s) => s.highlightParts);
-  const species = useStore((s) => s.snapshot?.species);
   const st = useStore.getState;
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -34,7 +64,6 @@ export function Canvas() {
   const [marquee, setMarquee] = useState<null | { x0: number; y0: number; x1: number; y1: number }>(null);
   const [mouse, setMouse] = useState({ x: 0, y: 0 });
   const [hover, setHover] = useState<Hover | null>(null);
-  useStore((s) => s.chartTick); // repaint tooltip pressures
   const fitTick = useStore((s) => s.fitTick);
 
   // touch pinch-zoom state: active pointers + gesture baseline
@@ -281,9 +310,6 @@ export function Canvas() {
     return hit && !hitTooCloseToEnds(system, hit, def) ? hit : null;
   }, [placing, system, mouse, view.scale]);
 
-  const tooltipNode = hover ? compiled?.regionNode[`${hover.inst.id}:0`] ?? compiled?.portNode[`${hover.inst.id}:0`] : undefined;
-  const tooltipP = tooltipNode ? nodePressures.get(tooltipNode) : undefined;
-  const tooltipPartials = tooltipNode ? nodePartials.get(tooltipNode) : undefined;
 
   return (
     <div className="canvas-wrap">
@@ -478,23 +504,7 @@ export function Canvas() {
         </g>
       </svg>
       <Colorbar />
-      {hover && tooltipP !== undefined && (
-        <div className="tooltip" style={{ left: hover.x + 14, top: hover.y + 10 }}>
-          <b>{hover.inst.id}</b> — {formatPressure(tooltipP, unit)}
-          {tooltipPartials && species && (
-            <table>
-              <tbody>
-                {species.map((g, i) => (
-                  <tr key={g}>
-                    <td>{g}</td>
-                    <td>{formatPressure(tooltipPartials[i], unit)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
+      {hover && <PressureTooltip hover={hover} />}
     </div>
   );
 }
