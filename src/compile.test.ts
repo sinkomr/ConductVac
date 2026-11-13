@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileSystem } from './compile';
+import { compileSystem, translateAction } from './compile';
 import { PART_BY_ID, portFlange } from './data/fittings';
 import { PUMP_CATALOG } from './data/pumps';
 import type { PartInstance, SystemDefinition } from './types';
@@ -116,5 +116,17 @@ describe('editable pump flanges', () => {
     expect(def.ports).toHaveLength(1);
     expect(portFlange(def, 0, { ...def.defaults })).toBe('CF200');
     expect(def.params.some((p) => p.key === 'backingFlange')).toBe(false);
+  });
+});
+
+describe('part-targeted temperature actions', () => {
+  it('a setpoint on a long hose reaches every segment, not just its first node', () => {
+    const c = compileSystem(sysOf([{ id: 'hose', def: 'flex-KF25', x: 0, y: 0, rot: 0, params: { length: 2000 } }]));
+    const hoseNodes = c.engine.nodes.filter((n) => n.id.startsWith('hose.')).map((n) => n.id);
+    expect(hoseNodes.length).toBeGreaterThan(15); // 2 m in ≤ 10 cm segments
+    const a = translateAction({ type: 'setTemperature', nodeIds: ['hose'], temperatureC: 150 }, c);
+    expect(a?.type).toBe('setTemperature');
+    const targets = a && a.type === 'setTemperature' && a.nodeIds !== 'all' ? a.nodeIds : [];
+    expect([...targets].sort()).toEqual([...hoseNodes].sort());
   });
 });
