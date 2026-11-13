@@ -22,6 +22,9 @@ const fromB64url = (s: string): Uint8Array<ArrayBuffer> => {
   return bytes;
 };
 
+/** largest system JSON a link may inflate to (the bundled examples are ~10 kB) */
+const MAX_PAYLOAD_BYTES = 4 * 1024 * 1024;
+
 interface ByteStream {
   writable: WritableStream<BufferSource>;
   readable: ReadableStream<Uint8Array>;
@@ -35,12 +38,18 @@ async function pipeThrough(bytes: Uint8Array<ArrayBuffer>, stream: ByteStream): 
   writer.close().catch(() => undefined);
   const chunks: Uint8Array[] = [];
   const reader = stream.readable.getReader();
+  let total = 0;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
+    total += value.length;
+    if (total > MAX_PAYLOAD_BYTES) {
+      // a few hundred bytes of deflate can expand to gigabytes
+      await reader.cancel().catch(() => undefined);
+      throw new Error('share payload too large');
+    }
     chunks.push(value);
   }
-  const total = chunks.reduce((n, c) => n + c.length, 0);
   const out = new Uint8Array(total);
   let off = 0;
   for (const c of chunks) {
@@ -58,12 +67,16 @@ export async function encodeSystem(sys: SystemDefinition): Promise<string> {
   return `s=${b64url(packed)}`;
 }
 
-const looksLikeSystem = (sys: unknown): sys is SystemDefinition =>
+const looksLikeSystem = (sys: unknown): boolean =>
   !!sys && typeof sys === 'object' &&
   (sys as SystemDefinition).version === 1 && Array.isArray((sys as SystemDefinition).parts);
 
-/** decode a location.hash (with or without '#'); null on anything invalid */
-export async function decodeHash(hash: string): Promise<SystemDefinition | null> {
+/**
+ * Decode a location.hash (with or without '#'); null on anything invalid.
+ * The result is UNTRUSTED — anyone can craft a link — so it is typed
+ * `unknown` and must go through normalizeSystem (store.importSystem).
+ */
+export async function decodeHash(hash: string): Promise<unknown> {
   try {
     const h = hash.startsWith('#') ? hash.slice(1) : hash;
     let bytes: Uint8Array;

@@ -4,6 +4,7 @@ import type {
   SimSnapshot, SystemDefinition,
 } from './types';
 import { compileSystem, translateAction, type CompiledSystem } from './compile';
+import { normalizeSystem } from './schema';
 import { PART_BY_ID } from './data/fittings';
 import { tidyConnections } from './ui/builder/tidy';
 import { buildPaste, copyParts, type ClipboardData } from './clipboard';
@@ -107,6 +108,37 @@ const emptySystem = (): SystemDefinition => ({
 let idCounter = 1;
 export const freshId = (prefix: string) => `${prefix}${idCounter++}`;
 
+/** ids of the parts a script action is aimed at ('all'-type and target-less actions: none) */
+function actionTargets(a: SimEventAction): string[] {
+  switch (a.type) {
+    case 'valve': return [a.edgeId];
+    case 'pump': case 'ballast': case 'regenerate': return [a.pumpId];
+    case 'gauge': return [a.gaugeId];
+    case 'heSpray': case 'setLeak': return [a.leakId];
+    case 'bakeStart': case 'bakeEnd': case 'setTemperature':
+      return a.nodeIds === 'all' ? [] : a.nodeIds;
+    default: return [];
+  }
+}
+
+/** drop script rows whose every target is in `gone`; trim multi-target rows */
+function pruneScript(script: ScriptRow[], gone: ReadonlySet<string>): ScriptRow[] {
+  const out: ScriptRow[] = [];
+  for (const row of script) {
+    const targets = actionTargets(row.action);
+    if (!targets.some((t) => gone.has(t))) {
+      out.push(row);
+      continue;
+    }
+    const a = row.action;
+    if ((a.type === 'bakeStart' || a.type === 'bakeEnd' || a.type === 'setTemperature') && a.nodeIds !== 'all') {
+      const nodeIds = a.nodeIds.filter((t) => !gone.has(t));
+      if (nodeIds.length) out.push({ ...row, action: { ...a, nodeIds } });
+    }
+  }
+  return out;
+}
+
 /** bump idCounter past any ids already present in a loaded system */
 function absorbIds(sys: SystemDefinition) {
   const all = [
@@ -128,6 +160,8 @@ interface AppState {
   placing: string | null; // catalog def id being placed
   compiled: CompiledSystem | null;
   warnings: string[];
+  /** what normalizeSystem dropped or repaired when the current system was imported */
+  loadNotes: string[];
   stale: boolean;
 
   running: boolean;
@@ -168,6 +202,8 @@ interface AppState {
   rotatePart(id: string): void;
   rotateSelection(): void;
   setParam(id: string, key: string, value: number | string | boolean): void;
+  /** flip a valve / pump / gauge from its LIVE state (what a double-click does) */
+  toggleLive(id: string): void;
   deletePart(id: string): void;
   deleteParts(ids: string[]): void;
   select(id: string | null): void;
@@ -187,7 +223,10 @@ interface AppState {
   redo(): void;
   /** reassign joints to equivalent ports for cleaner wiring (undoable) */
   tidyWiring(): void;
-  loadSystem(sys: SystemDefinition): void;
+  /** load a trusted, well-formed system (examples, tests); `notes` reports what an import repaired */
+  loadSystem(sys: SystemDefinition, notes?: string[]): void;
+  /** validate and load a system from outside the app (file, share link, autosave); false if it is not one */
+  importSystem(raw: unknown): boolean;
   newSystem(): void;
   renameSystem(name: string): void;
   setHumidity(rh: number): void;
@@ -225,7 +264,20 @@ interface AppState {
 const undoStack: string[] = [];
 const redoStack: string[] = [];
 const bumpHist = () => useStore.setState((s) => ({ histTick: s.histTick + 1 }));
-const pushUndo = (sys: SystemDefinition) => {
+// A burst of edits to the same field (dragging a slider, typing a number or
+// a note) is ONE undo step: the snapshot taken before the first edit already
+// holds the state to return to.
+const COALESCE_MS = 1000;
+let lastUndoKey: string | null = null;
+let lastUndoAt = 0;
+const pushUndo = (sys: SystemDefinition, coalesceKey?: string) => {
+  const now = Date.now();
+  if (coalesceKey && coalesceKey === lastUndoKey && now - lastUndoAt < COALESCE_MS) {
+    lastUndoAt = now;
+    return;
+  }
+  lastUndoKey = coalesceKey ?? null;
+  lastUndoAt = now;
   undoStack.push(JSON.stringify(sys));
   if (undoStack.length > 100) undoStack.shift();
   redoStack.length = 0;
@@ -245,6 +297,48 @@ export const nodeTemps = new Map<string, number>();
 export const selectedOne = (s: { selection: string[] }): string | null =>
   s.selection.length ? s.selection[s.selection.length - 1] : null;
 
+function clearLiveMaps() {
+  nodePressures.clear();
+  nodePartials.clear();
+  nodeTemps.clear();
+}
+
+/**
+ * The LIVE state of a part's on/off-type parameter in the running sim, or
+ * null when there is none to read (no sim, part not compiled in yet). The
+ * editor param is only the starting condition: a script or a power failure
+ * changes the real state without touching it.
+ */
+export function liveBool(
+  st: Pick<AppState, 'simLoaded' | 'stale' | 'snapshot' | 'compiled'>,
+  partId: string,
+  key: string,
+): boolean | null {
+  if (!st.simLoaded || st.stale || !st.snapshot || !st.compiled) return null;
+  if (key === 'open') {
+    const edgeId = st.compiled.valveEdge[partId];
+    const v = edgeId ? st.snapshot.valves.find((x) => x.id === edgeId) : undefined;
+    return v ? v.open > 0.5 : null;
+  }
+  if (key === 'on') {
+    const pm = st.snapshot.pumps.find((x) => x.id === partId);
+    return pm ? pm.on : null;
+  }
+  if (key === 'enabled') {
+    const g = st.snapshot.gauges.find((x) => x.id === partId);
+    return g ? g.status !== 'off' : null;
+  }
+  return null;
+}
+
+/** the on/off-type param a double-click toggles for this part kind, if any */
+function toggleKeyOf(kind: string): 'open' | 'on' | 'enabled' | null {
+  if (kind.startsWith('valve') && kind !== 'valve-butterfly') return 'open';
+  if (kind === 'pump' || kind.startsWith('coldtrap')) return 'on';
+  if (kind === 'gauge') return 'enabled';
+  return null;
+}
+
 // copy/paste buffer (in-memory; survives system switches, not reloads)
 let clipboard: ClipboardData | null = null;
 
@@ -255,6 +349,18 @@ let workerFactory: () => Worker = () => new EngineWorker();
 function ensureWorker(set: (p: Partial<AppState>) => void, get: () => AppState): Worker {
   if (worker) return worker;
   worker = workerFactory();
+  // an exception the worker did not catch itself: stop cleanly instead of
+  // leaving Run / fast-forward latched on a dead engine
+  worker.onerror = (ev: ErrorEvent) => {
+    set({
+      running: false,
+      ffActive: false,
+      eventLog: [...get().eventLog, {
+        t: get().snapshot?.t ?? 0, severity: 'error',
+        message: `engine crashed: ${ev.message || 'unknown error'} — Reset to restart`,
+      }],
+    });
+  };
   worker.onmessage = (ev: MessageEvent<WorkerMsg>) => {
     const msg = ev.data;
     switch (msg.type) {
@@ -265,10 +371,12 @@ function ensureWorker(set: (p: Partial<AppState>) => void, get: () => AppState):
           return g ? `${id} · ${g.type}` : id;
         });
         resetChartHistory(msg.gaugeIds, labels);
+        clearLiveMaps();
         set({ simLoaded: true, eventLog: [], chartTick: 0, flows: null });
         break;
       }
       case 'snapshot': {
+        if (!get().simLoaded) break; // a straggler from a sim that was just unloaded
         for (const n of msg.snap.nodes) {
           nodePressures.set(n.id, n.pTotal);
           nodePartials.set(n.id, n.partials);
@@ -285,7 +393,13 @@ function ensureWorker(set: (p: Partial<AppState>) => void, get: () => AppState):
         break;
       }
       case 'ffdone':
-        set({ ffActive: false });
+        set({
+          ffActive: false,
+          eventLog: msg.converged ? get().eventLog : [...get().eventLog, {
+            t: msg.t, severity: 'warning',
+            message: `fast-forward stopped at t = ${formatSimTime(msg.t)} without reaching steady state`,
+          }],
+        });
         break;
       case 'flows':
         set({ flows: msg.report });
@@ -330,6 +444,7 @@ export const useStore = create<AppState>((set, get) => ({
   placing: null,
   compiled: null,
   warnings: [],
+  loadNotes: [],
   stale: false,
 
   running: false,
@@ -373,6 +488,7 @@ export const useStore = create<AppState>((set, get) => ({
   // the Canvas captures JSON.stringify(system) on drag start and commits it
   // here on drop; like moveParts this leaves `system` untouched
   commitDragUndo: (preJson) => {
+    lastUndoKey = null;
     undoStack.push(preJson);
     if (undoStack.length > 100) undoStack.shift();
     redoStack.length = 0;
@@ -425,7 +541,7 @@ export const useStore = create<AppState>((set, get) => ({
     const st = get();
     const inst = st.system.parts.find((p) => p.id === id);
     if (!inst) return;
-    pushUndo(st.system);
+    pushUndo(st.system, `param:${id}:${key}`);
     set({
       system: {
         ...st.system,
@@ -443,6 +559,16 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  toggleLive: (id) => {
+    const st = get();
+    const inst = st.system.parts.find((p) => p.id === id);
+    const def = inst && PART_BY_ID[inst.def];
+    const key = def && toggleKeyOf(def.kind);
+    if (!inst || !def || !key) return;
+    const current = liveBool(st, id, key) ?? Boolean(inst.params[key] ?? def.defaults[key]);
+    st.setParam(id, key, !current);
+  },
+
   deletePart: (id) => get().deleteParts([id]),
 
   deleteParts: (ids) => {
@@ -455,6 +581,9 @@ export const useStore = create<AppState>((set, get) => ({
         ...st.system,
         parts: st.system.parts.filter((p) => !gone.has(p.id)),
         connections: st.system.connections.filter((c) => !gone.has(c.a.part) && !gone.has(c.b.part)),
+        // script rows aimed at a deleted part go with it (same undo step);
+        // left behind they would silently do nothing at run time
+        script: pruneScript(st.system.script, gone),
       },
       selection: st.selection.filter((s) => !gone.has(s)),
       stale: true,
@@ -600,6 +729,7 @@ export const useStore = create<AppState>((set, get) => ({
   undo: () => {
     const prev = undoStack.pop();
     if (!prev) return;
+    lastUndoKey = null;
     redoStack.push(JSON.stringify(get().system));
     set({ system: JSON.parse(prev), stale: true, selection: [], histTick: get().histTick + 1 });
   },
@@ -607,6 +737,7 @@ export const useStore = create<AppState>((set, get) => ({
   redo: () => {
     const next = redoStack.pop();
     if (!next) return;
+    lastUndoKey = null;
     undoStack.push(JSON.stringify(get().system));
     set({ system: JSON.parse(next), stale: true, selection: [], histTick: get().histTick + 1 });
   },
@@ -619,44 +750,74 @@ export const useStore = create<AppState>((set, get) => ({
     set({ system: { ...st.system, connections: t.connections }, stale: true });
   },
 
-  loadSystem: (sys) => {
+  loadSystem: (sys, notes = []) => {
     absorbIds(sys);
     const tidied = tidyConnections(sys);
     if (tidied.changed) sys = { ...sys, connections: tidied.connections };
     pushUndo(get().system);
+    clearLiveMaps();
     set({
-      system: sys, selection: [], stale: true, snapshot: null,
-      simLoaded: false, eventLog: [], fitTick: get().fitTick + 1,
+      system: sys, selection: [], stale: true, snapshot: null, loadNotes: notes,
+      simLoaded: false, eventLog: [], highlightParts: null, fitTick: get().fitTick + 1,
     });
     get().loadSim(false);
   },
 
-  newSystem: () => {
-    pushUndo(get().system);
-    set({ system: emptySystem(), selection: [], stale: true, snapshot: null, simLoaded: false });
+  importSystem: (raw) => {
+    const n = normalizeSystem(raw);
+    if (!n) return false;
+    get().loadSystem(n.system, n.notes);
+    return true;
   },
 
-  renameSystem: (name) => set({ system: { ...get().system, name } }),
-  setHumidity: (rh) => set({ system: { ...get().system, humidityRH: rh }, stale: true }),
+  newSystem: () => {
+    pushUndo(get().system);
+    // the worker keeps integrating (and posting snapshots of) whatever it
+    // last loaded until told otherwise
+    send({ type: 'unload' });
+    clearLiveMaps();
+    resetChartHistory([], []);
+    set({
+      system: emptySystem(), selection: [], stale: false, snapshot: null, simLoaded: false,
+      compiled: null, warnings: [], loadNotes: [], eventLog: [], flows: null,
+      running: false, ffActive: false, highlightParts: null, chartTick: get().chartTick + 1,
+    });
+  },
 
-  addScriptRow: (row) =>
+  renameSystem: (name) => {
+    pushUndo(get().system, 'name');
+    set({ system: { ...get().system, name } });
+  },
+  setHumidity: (rh) => {
+    if (!Number.isFinite(rh)) return;
+    pushUndo(get().system, 'humidity');
+    set({ system: { ...get().system, humidityRH: Math.max(0, Math.min(100, rh)) }, stale: true });
+  },
+
+  addScriptRow: (row) => {
+    pushUndo(get().system);
     set({
       system: { ...get().system, script: [...get().system.script, { ...row, id: freshId('ev') }] },
       stale: true,
-    }),
-  updateScriptRow: (id, patch) =>
+    });
+  },
+  updateScriptRow: (id, patch) => {
+    pushUndo(get().system, `script:${id}`);
     set({
       system: {
         ...get().system,
         script: get().system.script.map((r) => (r.id === id ? { ...r, ...patch } : r)),
       },
       stale: true,
-    }),
-  deleteScriptRow: (id) =>
+    });
+  },
+  deleteScriptRow: (id) => {
+    pushUndo(get().system);
     set({
       system: { ...get().system, script: get().system.script.filter((r) => r.id !== id) },
       stale: true,
-    }),
+    });
+  },
 
   loadSim: (autorun) => {
     const st = get();
@@ -668,11 +829,13 @@ export const useStore = create<AppState>((set, get) => ({
         const action = translateAction(row.action, compiled);
         if (action) script.push({ t: row.t, action });
       }
-      set({ compiled, warnings: compiled.warnings, stale: false, flows: null });
+      set({ compiled, warnings: [...get().loadNotes, ...compiled.warnings], stale: false, flows: null });
       send({ type: 'load', engine: compiled.engine, script, autorun });
       if (autorun) set({ running: true });
     } catch (err) {
-      set({ warnings: [String(err)] });
+      // nothing was sent: the worker still holds the PREVIOUS system
+      set({ warnings: [...get().loadNotes, String(err)], compiled: null, simLoaded: false, running: false });
+      send({ type: 'unload' });
     }
   },
 
@@ -699,8 +862,9 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   fastForward: () => {
-    const st = get();
-    if (!st.simLoaded || st.stale) st.loadSim(false);
+    if (get().ffActive) return;
+    if (!get().simLoaded || get().stale) get().loadSim(false);
+    if (!get().compiled) return; // the system did not compile — nothing to fast-forward
     send({ type: 'ff' });
     set({ ffActive: true });
   },
@@ -760,12 +924,13 @@ export function _setWorkerFactory(f: (() => Worker) | null): void {
 export function _resetForTests(): void {
   undoStack.length = 0;
   redoStack.length = 0;
+  lastUndoKey = null;
   worker = null;
   pinnedRun = null;
   useStore.setState({
     system: emptySystem(),
     selection: [], connectFrom: null, placing: null,
-    compiled: null, warnings: [], stale: false,
+    compiled: null, warnings: [], loadNotes: [], stale: false,
     running: false, ffActive: false, snapshot: null, simLoaded: false,
     eventLog: [], chartTick: 0, flows: null,
     unit: 'Torr', highlightParts: null, histTick: 0,

@@ -16,7 +16,6 @@ import { EXAMPLES } from '../examples';
 import { encodeSystem } from '../share';
 import { downloadBlob } from './download';
 import { exportSchematicPng, exportSchematicSvg } from './builder/exportSvg';
-import type { SystemDefinition } from '../types';
 
 const fileStem = (name: string) => name.replace(/\s+/g, '-').toLowerCase() || 'system';
 
@@ -70,7 +69,8 @@ export function App() {
 
   const share = async () => {
     const payload = await encodeSystem(system);
-    const url = `${location.origin}${location.pathname}${location.search}#${payload}`;
+    // not location.origin: that is the string "null" when the portable build runs from file://
+    const url = `${location.href.split('#')[0]}#${payload}`;
     if (payload.length > 8192) {
       alert('This system is unusually large — the share link may not paste everywhere.');
     }
@@ -97,9 +97,7 @@ export function App() {
   const load = (file: File) => {
     file.text().then((text) => {
       try {
-        const sys = JSON.parse(text) as SystemDefinition;
-        if (sys.version !== 1 || !Array.isArray(sys.parts)) throw new Error('not a ConductVac system file');
-        st().loadSystem(sys);
+        if (!st().importSystem(JSON.parse(text))) throw new Error('not a ConductVac system file');
       } catch (err) {
         alert(`Could not load: ${err}`);
       }
