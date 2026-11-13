@@ -1,5 +1,5 @@
 import type { GasId, MaterialId, SurfaceSpec } from '../types';
-import { MATERIALS, bakeEnhancement } from '../data/materials';
+import { MATERIALS, bakeEnhancement, sealPermeation } from '../data/materials';
 
 /**
  * Gas loads (§1.4): outgassing and permeation. Leaks are network edges to the
@@ -14,8 +14,10 @@ import { MATERIALS, bakeEnhancement } from '../data/materials';
  * (treated as constant — bulk-diffusion limited, documented simplification).
  * During a bake at T the whole rate is multiplied by 10^((T-20)/60).
  *
- * Permeation (elastomer seals only): constant Q = K_perm · A_seal for He and
- * H2O — the real, instructive floor of O-ring systems at ~1e-8..1e-9 Torr.
+ * Permeation (elastomer SEALS only — surfaces flagged `seal`): each gas
+ * arrives in proportion to its partial pressure in the room air outside,
+ * Q_g = K_g·(A/w)·p_g (materials.ts). Air and water dominate; this is the
+ * real, instructive floor of O-ring systems.
  */
 
 const T1 = 3600;
@@ -39,12 +41,24 @@ export class SurfaceRuntime {
   bakingAtC: number | null = null;
   /** integrated thermal dose toward `baked` (10^((T−150°C)/60)·dt while T ≥ 80 °C) */
   bakeDose = 0;
+  /** steady permeation per species, Torr·L/s (null unless this is a seal) */
+  private permeation: Float64Array | null = null;
+  private readonly isSeal: boolean;
 
   constructor(nodeIdx: number, spec: SurfaceSpec) {
     this.nodeIdx = nodeIdx;
     this.area = spec.area;
     this.material = spec.material;
     this.baked = spec.baked ?? false;
+    this.isSeal = spec.seal ?? false;
+  }
+
+  /** Fix the permeation rates from the gas outside the seal (partials in Torr, in `species` order). */
+  setOutsideGas(species: GasId[], pOutside: ArrayLike<number>): void {
+    if (!this.isSeal || !MATERIALS[this.material].permeability) return;
+    this.permeation = Float64Array.from(
+      species.map((g, gi) => sealPermeation(this.material, g, pOutside[gi], this.area)),
+    );
   }
 
   /**
@@ -87,15 +101,10 @@ export class SurfaceRuntime {
       }
     }
 
-    // permeation through elastomer seals: constant, He + H2O
-    const perm = qPermOut ?? qOut;
-    if (mat.permeationHe) {
-      const gi = species.indexOf('He');
-      if (gi >= 0) perm[gi] += mat.permeationHe * this.area;
-    }
-    if (mat.permeationH2O) {
-      const gi = species.indexOf('H2O');
-      if (gi >= 0) perm[gi] += mat.permeationH2O * this.area;
+    // permeation through elastomer seals: constant for a given room air
+    if (this.permeation) {
+      const perm = qPermOut ?? qOut;
+      for (let gi = 0; gi < this.permeation.length; gi++) perm[gi] += this.permeation[gi];
     }
   }
 

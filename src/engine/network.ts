@@ -93,7 +93,6 @@ export function buildNetwork(spec: EngineSystemSpec): Net {
   const nodes: NodeRuntime[] = [];
   const nodeIndex = new Map<string, number>();
 
-  const heComp = species.map((g) => (g === 'He' ? 760 : 0));
   const addNode = (n: EngineNodeSpec): number => {
     if (nodeIndex.has(n.id)) throw new Error(`duplicate node id: ${n.id}`);
     const idx = nodes.length;
@@ -121,7 +120,6 @@ export function buildNetwork(spec: EngineSystemSpec): Net {
 
   const atmIdx = addNode({ id: ATM_NODE, volume: 1, fixed: Object.fromEntries(species.map((g, i) => [g, atmComp[i]])), label: 'Atmosphere' });
   const heIdx = addNode({ id: HE_NODE, volume: 1, fixed: { He: 760 }, label: 'He spray' });
-  void heComp;
 
   for (const n of spec.nodes) addNode(n);
 
@@ -211,6 +209,7 @@ export function buildNetwork(spec: EngineSystemSpec): Net {
     for (const s of n.surfaces) {
       const sr = new SurfaceRuntime(idx, s);
       sr.ventRH = humidityRH;
+      sr.setOutsideGas(species, atmComp);
       surfaces.push(sr);
     }
   }
@@ -320,11 +319,14 @@ export function segmentTube(opts: {
         label: `${id} segment ${i + 1}`,
       });
     }
+    // one tube has ONE entrance loss: split it across the two end segments
+    // (interior segments are pure long-tube elements)
+    const entrance = nSeg === 1 ? 1 : i === 0 || isLast ? 0.5 : 0;
     edges.push({
       id: `${id}~${i}`,
       a: prev,
       b: next,
-      conductance: { kind: 'tube', d, L: segL, bends90: bendsPerSeg, lengthFactor },
+      conductance: { kind: 'tube', d, L: segL, bends90: bendsPerSeg, lengthFactor, entrance },
       meshFactor: opts.meshFactor,
       label: `${id} [${i + 1}/${nSeg}]`,
     });

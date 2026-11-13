@@ -138,7 +138,7 @@ describe('flow report diagnoses', () => {
     const sim = new Sim(base({
       nodes: [{
         id: 'ch', volume: 5, label: 'chamber',
-        surfaces: [{ area: 10, material: 'viton' }],
+        surfaces: [{ area: 10, material: 'viton', seal: true }],
       }],
       pumps: [{ id: 'pump1', node: 'ch', model: { kind: 'displacement', sPeak: 20, pUlt: 1e-9 }, on: true }],
     }));

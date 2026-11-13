@@ -43,11 +43,12 @@ describe('He leak check', () => {
       det.q(heIdx, sim.p[heIdx * sim.net.nodes.length + det.nodeIdx],
         sim.p[heIdx * sim.net.nodes.length + det.backingIdx]);
 
-    // the baseline is dominated by He permeation through the three KF25
-    // Viton seals (~5.7 cm² × 1e-9) — the physically-real detection floor
+    // the baseline is atmospheric helium (5 ppm, 4e-3 Torr): ~1e-11 Torr·L/s
+    // permeating the three KF25 Viton seals plus ~1e-12 through the leak
+    // itself — the physically-real detection floor
     const background = qHe();
-    expect(background).toBeGreaterThan(1e-10);
-    expect(background).toBeLessThan(1e-8);
+    expect(background).toBeGreaterThan(3e-12);
+    expect(background).toBeLessThan(1e-10);
 
     // spray for 20 s: the signal should approach the leak's full-He rate,
     // qStd × sqrt(28.97/4) (molecular flow enhances light-gas flux)

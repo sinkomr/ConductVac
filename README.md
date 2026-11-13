@@ -103,14 +103,16 @@ Sources: Roth, *Vacuum Technology*; O'Hanlon, *A User's Guide to Vacuum Technolo
 
 - **Short-tube correction** (every fitting): 1/C_mol,short = 1/C_ap + 1/C_mol,long — the Dushman approximation, good to ~10% versus Clausing factors.
 - **Bends**: +1.33·d equivalent length per 90° bend. **Corrugated hose**: geometric length ×1.4 at the corrugation-root ID. **Bellows**: ×1.2.
-- **Species scaling**: molecular terms × √(28.97/M); viscous terms × (μ_air/μ_gas). The Knudsen number uses the air mean free path at the total mean pressure (mixture approximation).
-- **Tube auto-segmentation**: anything longer than 15 cm splits into ≤10 cm segments with internal volume and wall area — this is what makes pressure gradients along forelines visible in the colormap (capped ~2000 nodes).
+- **Tube auto-segmentation**: anything longer than 15 cm splits into ≤10 cm segments with internal volume and wall area — this is what makes pressure gradients along forelines visible in the colormap (capped ~2000 nodes). The entrance loss is counted **once per tube** (shared by the two end segments), so a segmented tube has exactly the conductance of the unsegmented one.
+- **Mixtures flow as mixtures.** Every element has two parts. The *diffusive* part moves each species down its own partial-pressure gradient, × √(28.97/M); it is the whole flow in the molecular regime and fades as 1/(1 + k·d/2λ) toward gas-phase diffusion in the continuum (Bosanquet interpolation). The *bulk* part (Poiseuille + slip) is driven by the total pressure difference and carries the **upstream composition** with it, scaled by the mixture's viscosity and mean molar mass. So viscous roughing does not strip water or enrich helium, and nothing diffuses upstream against a viscous flow faster than gas-phase diffusion allows.
+- **Choked flow**: laminar Poiseuille flow has no speed limit, so tubes carry the sonic-orifice cap Q ≤ 20·A·p_upstream (air; O'Hanlon). It is applied as a series resistance that vanishes for small pressure ratios and in molecular flow: a vent valve or a flood through a short fitting is limited to the choked rate, while a line feeding a pump at a few percent of sonic speed keeps ≥ 94% of its Poiseuille conductance.
+- The Knudsen number uses the air mean free path at the total mean pressure (mixture approximation).
 
 ### Pumps
 
 - **Positive displacement** (diaphragm, rotary vane, scroll): S = S_peak·(1 − p_ult/p)₊ with a smoothed clip; gas ballast raises p_ult ×10 for H₂O and ×2 otherwise.
 - **Roots**: compression-ratio-limited against its backing pressure; speed collapses when ΔP exceeds the rating.
-- **Turbomolecular / diffusion**: throughput per species Q = A_g·(p_in,g − p_back,g/K0_g)₊ with species-dependent zero-flow compression K0 (K0(N₂) ~ 10⁸–10⁹, K0(H₂) ~ 10³–10⁴), smooth throughput rolloff above ~10⁻² Torr inlet, hard cutoff above the critical backing pressure, and first-order spin-up/warm-up. **H₂ dominating a baked system and turbos stalling on failed backing emerge from the model** rather than being scripted.
+- **Turbomolecular / diffusion**: throughput per species Q = A_g·(p_in,g − p_back,g/K0_g)₊ with **datasheet-style per-gas speeds** (turbo: He ≈ 1.0×, H₂ ≈ 0.85×, Ar ≈ 0.98× the N₂ speed — the mean of five commercial datasheets; diffusion: He and H₂ ≈ 1.25×; *not* √(28/M), which would overstate a turbo's H₂ speed about 4×), species-dependent zero-flow compression K0 (K0(N₂) ~ 10⁸–10⁹, K0(H₂) ~ 10³–10⁴), smooth throughput rolloff above ~10⁻² Torr inlet, hard cutoff above the critical backing pressure, and first-order spin-up/warm-up. **H₂ dominating a baked system and turbos stalling on failed backing emerge from the model** rather than being scripted.
 - **Ion**: bell-shaped S(p) peaking at 10⁻⁶ Torr (50% at 10⁻⁸/10⁻⁴), refuses to start above 10⁻⁴ Torr, noble-gas speed 5% (diode) / 25% (noble diode), overpressure trip.
 - **Cryopump**: per-species speeds (H₂O ≈ 3× N₂), finite per-species capacity in Torr·L with saturation events, early-crossover warning above 50 mTorr.
 - **NEG**: pumps H₂/H₂O/N₂/O₂/CO, nothing noble, finite capacity. **Sorption**: capacity-limited roughing.
@@ -120,7 +122,7 @@ Sources: Roth, *Vacuum Technology*; O'Hanlon, *A User's Guide to Vacuum Technolo
 - **Leaks**: fixed-conductance orifice from a 760 Torr atmosphere node; species arrive in proportion to their atmospheric partials scaled by √(28.97/M). Sprayable with helium (dwell-limited) for leak checking.
 - **Virtual leak**: a trapped cm³ at atmosphere bleeding through ~10⁻⁶ L/s — the classic slow-bleed signature He spraying cannot find.
 - **Outgassing**: Q = q₁·A·(t₁/(t+t₀))ⁿ per wetted surface with per-node exposure clocks (venting above 100 Torr resets them), t₁ = 1 h, t₀ = 60 s. Unbaked metals emit mostly H₂O; a completed bake permanently divides the H₂O term by 100 and switches to the material's (constant) H₂ rate. During a bake the rate multiplies by 10^((T−20 °C)/60) — a documented stand-in for Arrhenius behavior.
-- **Permeation**: constant He and H₂O influx through elastomer seal area (K ≈ 10⁻⁹ Torr·L/s/cm²) — the real floor of O-ring systems.
+- **Permeation**: every elastomer *seal* admits each gas in proportion to its partial pressure in the room air outside, Q = K·(A/w)·p with published permeabilities (Peacock 1980; Viton: He 12, N₂ 0.2, O₂ 1.0, H₂O 40 ×10⁻⁸ scc·cm/(s·cm²·atm)) and an effective path w = 0.3 cm. For Viton in 50% RH air that is ≈ 10⁻⁸ Torr·L/s of air plus ≈ 10⁻⁸ of water per cm² of seal — the real floor of O-ring systems, and it scales with the humidity setting. Atmospheric helium (5 ppm) contributes only ~2×10⁻¹² per cm². Published permeabilities scatter by up to ×10; treat the result as order-of-magnitude. An elastomer *inside* the chamber (a payload) outgasses but does not permeate.
 
 **Outgassing rates are order-of-magnitude, surface-history-dependent quantities.** Values follow O'Hanlon, *A User's Guide to Vacuum Technology* (outgassing chapter and appendices); Pfeiffer Vacuum, *The Vacuum Technology Book / Know-How*; Leybold, *Fundamentals of Vacuum Technology*.
 
@@ -142,7 +144,8 @@ The ODE system is stiff (time constants from ~0.1 ms to hours). The solver:
 
 - integrates **u = ln p** per node per species (positivity across 12 decades; pure exponential decay is reproduced *exactly* at any step size);
 - **backward Euler with Newton iteration**; the Jacobian has graph-Laplacian structure plus 2×2 pump inlet↔backing blocks, assembled banded after reverse Cuthill-McKee ordering and factorized without pivoting (with row equilibration — pressures spanning ~19 decades otherwise overflow the elimination);
-- solves each species' network independently per step (conductances couple nodes, not species); everything depending on *total* pressure — Knudsen conductances, pump rolloff/critical-backing/ultimate factors — is frozen and refreshed in a damped outer iteration;
+- splits each step into **pressure, then composition** wherever gas flows in bulk: one implicit solve for the node *totals* with the composition frozen, then one implicit upwind-transport solve per species using the bulk flows that pressure solve produced (conservative, and identical to the pressure solve for a uniform mixture). Steps with no bulk flow anywhere, and single-gas systems, solve each species' diffusive network directly;
+- freezes everything depending on *total* pressure — Knudsen conductances, pump rolloff/critical-backing/ultimate factors — and refreshes it in a damped outer iteration;
 - adapts the timestep from 1 ms (after events) by ×1.5 growth / ×4 shrink between a BDF-style local error estimate, capped at 10 s live (1 h in fast-forward);
 - stops **exactly** at scripted/interactive events, applies them, and restarts small;
 - runs in a Web Worker, posting ~10 Hz snapshots; chart samples are recorded per solver step (decimated), so transients stay resolved at any sim speed.
@@ -157,6 +160,8 @@ The ODE system is stiff (time constants from ~0.1 ms to hours). The solver:
 6. Outgassing-dominated steady state ⇒ p_ss = Q/S_eff
 7. Stiffness: 0.05 L node between a 300 L/s pump and 100 L chamber, accurate at dt ≫ V/C
 
+`src/engine/tests/mixture.test.ts` adds what a single-gas suite cannot see: segmented vs unsegmented tube conductance (equal to 9 digits), composition preserved to 1% through 480 s of viscous roughing, no upstream diffusion against a viscous flow with per-species inventories conserved, and vent time against the choked-orifice rate (within 15%).
+
 Plus integration tests on every bundled example (crossover shape, permeation floor, post-bake H₂ dominance at ~10⁻¹⁰, virtual-leak signature, Pirani-vs-full-range divergence).
 
 ---
@@ -165,14 +170,18 @@ Plus integration tests on every bundled example (crossover shape, permeation flo
 
 Representative, not manufacturer data — pump curves, gauge factors and outgassing rates are class-typical values for teaching and system-level trend analysis. Known simplifications (also surfaced as ⓘ notes in the inspector):
 
-- Short-tube conductances use the Dushman series approximation (~10% vs Clausing); series chains of fittings double-count entrance effects (10–20% conservative). No beaming corrections.
-- Aperture conductance in the continuum limit uses a choked-orifice value (conservative at small pressure ratios).
-- Viscous flow of mixtures is treated per-species (no advective coupling).
+- Short-tube conductances use the Dushman series approximation (~10% vs Clausing); series chains of *separate* fittings each carry their own entrance loss (10–20% conservative). No beaming corrections.
+- Continuum flow is laminar Poiseuille with a sonic-orifice throughput cap: no turbulence, and no Bernoulli entrance loss below the choked rate. Bare apertures use the choked value at every pressure ratio (conservative at small ratios).
+- Mixture viscosity and mean molar mass are mole-fraction averages of the upstream gas; the mean free path is air's.
+- The integrator works in ln p: exponential decays are exact at any step size, but filling a near-empty volume drops O((Δln p)²) of the inflow per step — sealed gas-transfer inventories are good to ~1–2%, not to round-off.
+- Throughput is carried in Torr·L without converting between nodes at different temperatures (a few percent in a bake), and thermal transpiration is applied only at the gauge.
+- Turbo/diffusion back-diffusion is clipped at zero net flow per species: the compression limit emerges correctly, but gas cannot travel backwards through a pump at speed (no counterflow leak detection).
 - An overloaded (rolled-off) turbo keeps 0.2% of its speed so overload stalls recover once the inlet drops — real pumps trip on temperature/current instead.
 - Bakeout is a permanent ×100 H₂O reduction plus the tabulated H₂ rate — real bake quality varies; venting a baked system does not fully restore the unbaked state here.
 - Positive-displacement pumps are assumed to hold vacuum when off (check valve); spin-up/down is a first-order lag with S ∝ rotor speed.
 - Atmospheric H₂O follows 17.5 Torr saturation at 20 °C × RH; adsorbed-water outgassing scales with RH/50%.
-- No thermal transients (gas at 20 °C throughout), no turbo venting dynamics, no oil vapor transport (backstreaming is an event-log warning).
+- Temperatures are per-node setpoint ramps (no heat-transfer model); viscosity is held at its 20 °C value. No turbo venting dynamics, no oil vapor transport (backstreaming is an event-log warning).
+- Seal permeation is steady-state: no time lag, no temperature dependence, and helium sprayed on an O-ring joint does not produce the delayed permeation signal a real leak check shows.
 
 ## Repository layout
 
@@ -196,3 +205,4 @@ Pushes to `main` build and publish to GitHub Pages via `.github/workflows/deploy
 - Leybold, *Fundamentals of Vacuum Technology*.
 - A. Roth, *Vacuum Technology*, 3rd ed., North-Holland.
 - S. Dushman, *Scientific Foundations of Vacuum Technique*, 2nd ed., Wiley.
+- R. N. Peacock, "Practical selection of elastomer materials for vacuum seals", *J. Vac. Sci. Technol.* 17, 330 (1980) — permeabilities, as reproduced in P. Chiggiato, [CERN Accelerator School notes](https://arxiv.org/abs/2006.07124).

@@ -8,19 +8,36 @@ import {
   BAKE_DOSE_MIN_C, BAKE_DOSE_REF_C, BAKE_DOSE_TARGET, T0K, TAU_COOL, TAU_HEAT, rampTo,
 } from './thermal';
 import { MATERIALS } from '../data/materials';
-import { P_SAT_H2O_20C, pSatH2O } from '../data/gases';
+import { GASES, P_SAT_H2O_20C, pSatH2O } from '../data/gases';
+import { M_AIR, MU_AIR } from '../types';
 
 /**
  * Numerical core (§1.6) — backward Euler with Newton iteration, integrating
  * u = ln(p) per node per species (guarantees positivity across 12 decades).
  *
- * Species are uncoupled through the network: conductances couple nodes, not
- * species, so each species' network is solved independently per step.
- * Everything that depends on TOTAL pressure (Knudsen conductances, pump
- * rolloff/critical-backing factors) is frozen at the step's start state and
- * refreshed in up-to-`maxOuter` outer iterations against the new totals —
- * a lagged-coefficient scheme whose error is controlled by the adaptive
- * timestep below.
+ * Each species' network is solved independently per step. Everything that
+ * depends on TOTAL pressure (Knudsen conductances, pump rolloff/critical-
+ * backing factors) is frozen at the step's start state and refreshed in
+ * up-to-`maxOuter` outer iterations against the new totals — a lagged-
+ * coefficient scheme whose error is controlled by the adaptive timestep.
+ *
+ * Mixture transport is segregated (pressure first, then composition) on any
+ * step where some edge carries bulk flow. Every edge has a per-species
+ * DIFFUSIVE conductance and a species-blind BULK conductance (conductance.ts):
+ *
+ *   1. pressure passes — ONE lumped solve for the node totals P with the
+ *      composition frozen at the step's start (p_g = x_g·P): every per-species
+ *      term is summed, the bulk flow is C_bulk·(P_j − P_i), fully implicit.
+ *      Repeated through the outer coefficient iterations.
+ *   2. composition pass — each species is re-solved with the bulk part in
+ *      upwind-advective form, Q_g = K·p_g,upstream with K = C_bulk·ΔP/P_up
+ *      from pass 1's totals: implicit in composition, conservative, and equal
+ *      to pass 1 for a uniform mixture.
+ *
+ * Without step 2 viscous flow would un-mix the gas (each species diffusing
+ * down its own partial-pressure gradient with its own viscosity). Steps with
+ * no bulk flow anywhere (and single-gas systems) skip the split: there the
+ * per-species diffusive solve is the whole physics.
  *
  * A key property of integrating in u: pure exponential decay (constant
  * du/dt) is reproduced EXACTLY at any dt, so pump-downs cost few steps.
@@ -112,12 +129,36 @@ export class Sim {
   lastFail = '';
   /** diagnostic: node dominating the last error estimate */
   lastEstWorst = '';
+  /** diagnostics: local-error estimate and Newton iteration count of the last accepted step */
+  lastEst = 0;
+  lastNewtonIters = 0;
 
   private events: SimEvent[] = [];
   private readonly nS: number;
   private readonly nN: number;
   // frozen per-step coefficients
-  private readonly edgeC: Float64Array; // [e * nS + g]
+  private readonly edgeC: Float64Array; // [e * nS + g] diffusive + bulk (pressure passes)
+  private readonly edgeMol: Float64Array; // [e * nS + g] diffusive part only
+  private readonly edgeBulk: Float64Array; // [e] species-blind bulk conductance
+  /** advective pass: volumetric sweep rate K = C_bulk·ΔP/P_up and upstream node per edge */
+  private readonly edgeK: Float64Array;
+  private readonly edgeUp: Int32Array;
+  /** true when some edge carries enough bulk flow to need the advective pass */
+  private anyBulk = false;
+  /** this step uses the segregated pressure/composition scheme (fixed at freeze) */
+  private stepSegregated = false;
+  /** start-of-step mole fractions [g * nNodes + i], ln of the start totals, and the previous step's Δln P */
+  private readonly xFrz: Float64Array;
+  private readonly uTotOld: Float64Array;
+  private readonly duTotPrev: Float64Array;
+  private readonly splitOut = new Float64Array(2);
+  /** candidate end-of-step totals from the last pressure pass */
+  private readonly pCand: Float64Array;
+  // per-node mixture scalings of the start state: μ_air/μ_mix and √(M_air/M_mix)
+  private readonly nodeVf: Float64Array;
+  private readonly nodeMf: Float64Array;
+  private readonly gasMu: Float64Array;
+  private readonly gasM: Float64Array;
   private readonly qSrc: Float64Array; // [g * nNodes + i]
   private readonly pTotWork: Float64Array; // total pressure per node for freezing
   // Newton work arrays
@@ -161,6 +202,18 @@ export class Sim {
     this.du = new Float64Array(this.nS * this.nN);
     this.duPrev = new Float64Array(this.nS * this.nN);
     this.edgeC = new Float64Array(net.edges.length * this.nS);
+    this.edgeMol = new Float64Array(net.edges.length * this.nS);
+    this.edgeBulk = new Float64Array(net.edges.length);
+    this.edgeK = new Float64Array(net.edges.length);
+    this.edgeUp = new Int32Array(net.edges.length);
+    this.pCand = new Float64Array(this.nN);
+    this.xFrz = new Float64Array(this.nS * this.nN);
+    this.uTotOld = new Float64Array(this.nN);
+    this.duTotPrev = new Float64Array(this.nN);
+    this.nodeVf = new Float64Array(this.nN).fill(1);
+    this.nodeMf = new Float64Array(this.nN).fill(1);
+    this.gasMu = Float64Array.from(net.species.map((g) => GASES[g].mu));
+    this.gasM = Float64Array.from(net.species.map((g) => GASES[g].M));
     this.qSrc = new Float64Array(this.nS * this.nN);
     this.pTotWork = new Float64Array(this.nN);
     this.band = new BandMatrix(net.nEq, Math.max(1, net.bandwidth));
@@ -435,8 +488,14 @@ export class Sim {
   /** Freeze conductances, pump coefficients and source terms from `p`-state totals at time tEnd. */
   private freeze(tEnd: number): void {
     const { net, nS, nN } = this;
-    // node totals
-    for (let i = 0; i < nN; i++) this.pTotWork[i] = this.totalAt(i);
+    // node totals and start-of-step composition
+    for (let i = 0; i < nN; i++) {
+      const pt = this.totalAt(i);
+      this.pTotWork[i] = pt;
+      this.pCand[i] = pt;
+      this.uTotOld[i] = Math.log(Math.max(pt, this.opts.pFloor));
+      for (let g = 0; g < nS; g++) this.xFrz[g * nN + i] = pt > 0 ? this.p[g * nN + i] / pt : 0;
+    }
 
     // temperatures: exact first-order ramp to the end of the attempted step;
     // the gas balance picks up Δu = ln(T_end/T_start) (isochoric ideal gas),
@@ -454,27 +513,14 @@ export class Sim {
       }
     }
 
-    // edges
+    // edges (mixture scalings from the start-state composition)
+    for (let i = 0; i < nN; i++) this.mixtureAt(i);
     for (let e = 0; e < net.edges.length; e++) {
       const edge = net.edges[e];
-      const tRel = 0.5 * (this.tempEnd[edge.a] + this.tempEnd[edge.b]) / T0K;
-      this.tRelEdge[e] = tRel;
-      let open = edge.open;
-      let scale = edge.meshFactor;
-      if (edge.pumpInternal) {
-        scale *= edge.pumpInternal.offConductance();
-        open = 1;
-      }
-      if (open <= 0 || scale <= 0) {
-        for (let g = 0; g < nS; g++) this.edgeC[e * nS + g] = 0;
-        continue;
-      }
-      // mean pressure across the edge; He-spray overrides only change composition, not total
-      const pMean = 0.5 * (this.pTotWork[edge.a] + this.pTotWork[edge.b]);
-      for (let g = 0; g < nS; g++) {
-        this.edgeC[e * nS + g] = scale * edge.model.cOf(g, pMean, open, tRel);
-      }
+      this.tRelEdge[e] = 0.5 * (this.tempEnd[edge.a] + this.tempEnd[edge.b]) / T0K;
     }
+    this.freezeEdges();
+    this.stepSegregated = nS > 1 && this.anyBulk;
 
     // pumps
     for (const pm of net.pumps) {
@@ -522,42 +568,139 @@ export class Sim {
     }
   }
 
+  /** μ_air/μ_mix and √(M_air/M_mix) of node i's current gas (mole-fraction averages) */
+  private mixtureAt(i: number): void {
+    const { nS, nN } = this;
+    let pt = 0, mu = 0, m = 0;
+    for (let g = 0; g < nS; g++) {
+      const pg = this.p[g * nN + i];
+      pt += pg;
+      mu += pg * this.gasMu[g];
+      m += pg * this.gasM[g];
+    }
+    if (pt > 0) {
+      this.nodeVf[i] = (MU_AIR * pt) / mu;
+      this.nodeMf[i] = Math.sqrt((M_AIR * pt) / m);
+    } else {
+      this.nodeVf[i] = 1;
+      this.nodeMf[i] = 1;
+    }
+  }
+
   /**
-   * Refresh pTotWork from the CANDIDATE state in uNew (outer iteration).
-   * Damped with a geometric mean: coefficient maps with steep negative slope
-   * (a displacement pump clipping at its ultimate pressure) turn the raw
-   * fixed-point iteration into a limit cycle — the blend keeps it contracting.
+   * Evaluate edge e at end totals pA/pB: fills splitOut with the diffusive
+   * (air) and bulk parts including mesh / rotor-duct scaling; the bulk part
+   * uses the upstream node's mixture. Returns false for a closed edge.
+   */
+  private evalEdge(e: number, pA: number, pB: number): boolean {
+    const edge = this.net.edges[e];
+    let open = edge.open;
+    let scale = edge.meshFactor;
+    if (edge.pumpInternal) {
+      scale *= edge.pumpInternal.offConductance();
+      open = 1;
+    }
+    if (open <= 0 || scale <= 0) return false;
+    const up = pA >= pB ? edge.a : edge.b;
+    edge.model.split(pA, pB, open, this.tRelEdge[e], this.nodeVf[up], this.nodeMf[up], this.splitOut);
+    this.splitOut[0] *= scale;
+    this.splitOut[1] *= scale;
+    return true;
+  }
+
+  /** Freeze every edge's conductances from pTotWork (He-spray overrides only change composition, not total). */
+  private freezeEdges(): void {
+    const { net, nS } = this;
+    this.anyBulk = false;
+    for (let e = 0; e < net.edges.length; e++) {
+      const edge = net.edges[e];
+      if (!this.evalEdge(e, this.pTotWork[edge.a], this.pTotWork[edge.b])) {
+        for (let g = 0; g < nS; g++) {
+          this.edgeC[e * nS + g] = 0;
+          this.edgeMol[e * nS + g] = 0;
+        }
+        this.edgeBulk[e] = 0;
+        continue;
+      }
+      const diff = this.splitOut[0];
+      const bulk = this.splitOut[1];
+      this.edgeBulk[e] = bulk;
+      // below 1e-4 of the diffusive part the bulk flow cannot move composition
+      // measurably: leave it in diffusive form and skip the advective pass
+      if (bulk > 1e-4 * diff) this.anyBulk = true;
+      const mf = edge.model.molFactor;
+      for (let g = 0; g < nS; g++) {
+        const mol = diff * mf[g];
+        this.edgeMol[e * nS + g] = mol;
+        this.edgeC[e * nS + g] = mol + bulk;
+      }
+    }
+  }
+
+  /**
+   * Set up the composition pass from the candidate totals in pCand: per edge
+   * the upstream node and the sweep rate K = C_bulk·ΔP/P_up, so that the bulk
+   * throughput of species g is K·p_g,upstream. With the SAME frozen C_bulk as
+   * the pressure pass, Σ_g K·p_g,up reproduces that pass's total flow.
+   */
+  private freezeAdvection(): void {
+    const { net } = this;
+    const pc = this.pCand;
+    for (let e = 0; e < net.edges.length; e++) {
+      const bulk = this.edgeBulk[e];
+      const edge = net.edges[e];
+      const pa = pc[edge.a], pb = pc[edge.b];
+      const pUp = Math.max(pa, pb);
+      this.edgeUp[e] = pa >= pb ? edge.a : edge.b;
+      this.edgeK[e] = bulk > 0 && pUp > 0 ? (bulk * Math.abs(pa - pb)) / pUp : 0;
+    }
+  }
+
+  /** Total throughput through edge e out of node `from` at the current state, Torr·L/s. */
+  edgeFlowFrom(e: number, from: number): number {
+    const { net, nS, nN } = this;
+    const edge = net.edges[e];
+    const other = edge.a === from ? edge.b : edge.a;
+    this.mixtureAt(edge.a);
+    this.mixtureAt(edge.b);
+    this.tRelEdge[e] = 0.5 * (net.nodes[edge.a].tempK + net.nodes[edge.b].tempK) / T0K;
+    const pFrom = this.totalAt(from), pOther = this.totalAt(other);
+    if (!this.evalEdge(e, this.totalAt(edge.a), this.totalAt(edge.b))) return 0;
+    const diff = this.splitOut[0];
+    let q = this.splitOut[1] * (pFrom - pOther);
+    const mf = edge.model.molFactor;
+    for (let g = 0; g < nS; g++) q += diff * mf[g] * (this.p[g * nN + from] - this.p[g * nN + other]);
+    return q;
+  }
+
+  /**
+   * Refresh pTotWork from the CANDIDATE state (outer iteration): the lumped
+   * totals in pCand on a segregated step, else the per-species iterates in
+   * uNew. Damped with a geometric mean: coefficient maps with steep negative
+   * slope (a displacement pump clipping at its ultimate pressure) turn the
+   * raw fixed-point iteration into a limit cycle — the blend keeps it
+   * contracting.
    */
   private refreshTotalsFromCandidate(): void {
     const { nN, nS, net } = this;
+    const seg = this.stepSegregated;
     for (let i = 0; i < nN; i++) {
       if (net.nodes[i].fixed) continue; // boundary totals never change
       let s = 0;
-      for (let g = 0; g < nS; g++) s += Math.exp(this.uNew[g * nN + i]);
+      if (seg) s = this.pCand[i];
+      else for (let g = 0; g < nS; g++) s += Math.exp(this.uNew[g * nN + i]);
       this.pTotWork[i] = Math.sqrt(this.pTotWork[i] * s);
     }
     // re-freeze edges & pumps against candidate totals (sources unchanged)
-    for (let e = 0; e < net.edges.length; e++) {
-      const edge = net.edges[e];
-      let open = edge.open;
-      let scale = edge.meshFactor;
-      if (edge.pumpInternal) {
-        scale *= edge.pumpInternal.offConductance();
-        open = 1;
-      }
-      if (open <= 0 || scale <= 0) continue;
-      const pMean = 0.5 * (this.pTotWork[edge.a] + this.pTotWork[edge.b]);
-      for (let g = 0; g < nS; g++) {
-        this.edgeC[e * nS + g] = scale * edge.model.cOf(g, pMean, open, this.tRelEdge[e]);
-      }
-    }
+    this.freezeEdges();
     for (const pm of net.pumps) {
-      const pIn = this.pTotWork[pm.nodeIdx];
+      const n = pm.nodeIdx;
+      const pIn = this.pTotWork[n];
       const pBack = pm.backingIdx >= 0 ? this.pTotWork[pm.backingIdx] : 760;
       for (let g = 0; g < nS; g++) {
-        this.pumpPartials[g] = net.nodes[pm.nodeIdx].fixed
-          ? this.p[g * nN + pm.nodeIdx]
-          : Math.exp(this.uNew[g * nN + pm.nodeIdx]);
+        this.pumpPartials[g] = net.nodes[n].fixed
+          ? this.p[g * nN + n]
+          : seg ? this.xFrz[g * nN + n] * this.pCand[n] : Math.exp(this.uNew[g * nN + n]);
       }
       pm.freeze(pIn, pBack, this.pumpPartials);
     }
@@ -566,30 +709,57 @@ export class Sim {
   // ------------------------------------------------------------- newton ----
 
   /**
-   * Solve the backward-Euler system for one species. Fills uNew[g] slice.
-   * Returns Newton iteration count, or -1 on failure.
+   * Solve one backward-Euler system by damped Newton in u = ln p. Returns the
+   * iteration count, or -1 on failure.
+   *
+   *   'species'    species g with every edge in diffusive form (mol + bulk):
+   *                the complete solve on a non-segregated step → uNew[g].
+   *   'lumped'     the node TOTALS with composition frozen (p_g = x_g·P),
+   *                all species summed → pCand.
+   *   'advective'  species g with the bulk part in upwind form (see
+   *                freezeAdvection) → uNew[g]. Starts from the OLD composition
+   *                at the NEW total pressure, which is the exact answer for a
+   *                uniformly mixed gas.
    */
-  private newtonSpecies(g: number, dt: number): number {
-    const { net, nN, opts } = this;
+  private newton(g: number, dt: number, mode: 'species' | 'lumped' | 'advective'): number {
+    const { net, nN, nS, opts } = this;
     const nEq = net.nEq;
+    const lumped = mode === 'lumped';
+    const advective = mode === 'advective';
     const off = g * nN;
+    const gLo = lumped ? 0 : g;
+    const gHi = lumped ? nS : g + 1;
+    const usePredictor = this.estValid && Number.isFinite(this.dtPrev);
+    // The floor of a node TOTAL is the sum of its species' floors: with every
+    // species parked at pFloor the old total is nS·pFloor, and a lumped
+    // unknown allowed to sink to pFloor would walk that gap (and back) on
+    // every step — five Newton iterations a step for an empty, valved-off
+    // volume, which is enough to stop the timestep growing.
+    const uMin = lumped ? U_MIN + Math.log(nS) : U_MIN;
 
-    // start iterate: predictor from previous step where valid
+    // start iterate
     for (let e = 0; e < nEq; e++) {
       const i = net.nodeOfEq[e];
-      let ug = this.u[off + i];
-      if (this.estValid && Number.isFinite(this.dtPrev)) {
-        const r = dt / this.dtPrev;
-        const pred = this.duPrev[off + i] * r;
-        ug += Math.max(-2, Math.min(2, pred));
+      let ug: number;
+      if (lumped) {
+        ug = this.uTotOld[i];
+        if (usePredictor) ug += Math.max(-2, Math.min(2, this.duTotPrev[i] * (dt / this.dtPrev)));
+      } else if (advective) {
+        ug = this.u[off + i] + Math.log(Math.max(this.pCand[i], opts.pFloor)) - this.uTotOld[i];
+      } else {
+        ug = this.u[off + i];
+        if (usePredictor) ug += Math.max(-2, Math.min(2, this.duPrev[off + i] * (dt / this.dtPrev)));
       }
-      this.uWork[i] = Math.max(U_MIN, Math.min(U_MAX, ug));
+      this.uWork[i] = Math.max(uMin, Math.min(U_MAX, ug));
     }
 
     for (let iter = 1; iter <= opts.maxNewton; iter++) {
-      // pressures at iterate (free) / state (boundary)
+      // pressures at iterate (free) / state (boundary): the species partial,
+      // or the node total in lumped mode
       for (let i = 0; i < nN; i++) {
-        this.pWork[i] = net.nodes[i].fixed ? this.p[off + i] : Math.exp(this.uWork[i]);
+        this.pWork[i] = net.nodes[i].fixed
+          ? (lumped ? this.pTotWork[i] : this.p[off + i])
+          : Math.exp(this.uWork[i]);
       }
       this.band.zero();
       const band = this.band;
@@ -597,66 +767,95 @@ export class Sim {
 
       for (let e = 0; e < nEq; e++) {
         const i = net.nodeOfEq[e];
-        const pi = this.pWork[i];
         const V = net.nodes[i].volume;
-        let R = this.qSrc[off + i];
+        const gfac = dt / (V * this.pWork[i]);
+        let R = 0;
         let dRdui = 0; // ∂R_i/∂u_i
 
-        // network edges
-        for (const ei of net.incident[i]) {
-          const C = this.edgeC[ei * this.nS + g];
-          if (C === 0) continue;
-          const edge = net.edges[ei];
-          const j = edge.a === i ? edge.b : edge.a;
-          const ej = net.eqOf[j];
-          const pj = ej >= 0 ? this.pWork[j] : this.boundaryPartial(ei, j, g);
-          R += C * (pj - pi);
-          dRdui -= C * pi;
-          if (ej >= 0) band.add(e, ej, -(dt / (V * pi)) * C * pj);
-        }
+        for (let gg = gLo; gg < gHi; gg++) {
+          const og = gg * nN;
+          const pi = lumped ? this.xFrz[og + i] * this.pWork[i] : this.pWork[i];
+          R += this.qSrc[og + i];
 
-        // pumps with inlet here
-        for (const k of this.pumpsAtInlet[i]) {
-          const pm = net.pumps[k];
-          const bIdx = pm.backingIdx;
-          const pb = bIdx >= 0 ? this.pWork[bIdx] : 0;
-          const Qp = pm.q(g, pi, pb);
-          R -= Qp;
-          const [dIn, dBack] = pm.dq(g, pi, pb);
-          dRdui -= dIn * pi;
-          if (bIdx >= 0) {
-            const eb = net.eqOf[bIdx];
-            if (eb >= 0) band.add(e, eb, (dt / (V * pi)) * dBack * pb);
+          // network edges
+          for (const ei of net.incident[i]) {
+            const C = advective ? this.edgeMol[ei * nS + gg] : this.edgeC[ei * nS + gg];
+            const K = advective ? this.edgeK[ei] : 0;
+            if (C === 0 && K === 0) continue;
+            const edge = net.edges[ei];
+            const j = edge.a === i ? edge.b : edge.a;
+            const ej = net.eqOf[j];
+            const pj = ej >= 0
+              ? (lumped ? this.xFrz[og + j] * this.pWork[j] : this.pWork[j])
+              : this.boundaryPartial(ei, j, gg);
+            R += C * (pj - pi);
+            dRdui -= C * pi;
+            if (ej >= 0) band.add(e, ej, -gfac * C * pj);
+            if (K !== 0) {
+              if (this.edgeUp[ei] === i) {
+                // this node is upstream: the bulk flow carries its own gas away
+                R -= K * pi;
+                dRdui -= K * pi;
+              } else {
+                // downstream: receives the neighbour's composition
+                R += K * pj;
+                if (ej >= 0) band.add(e, ej, -gfac * K * pj);
+              }
+            }
+          }
+
+          // pumps with inlet here
+          for (const k of this.pumpsAtInlet[i]) {
+            const pm = net.pumps[k];
+            const bIdx = pm.backingIdx;
+            const pb = bIdx < 0 ? 0 : lumped ? this.xFrz[og + bIdx] * this.pWork[bIdx] : this.pWork[bIdx];
+            R -= pm.q(gg, pi, pb);
+            const [dIn, dBack] = pm.dq(gg, pi, pb);
+            dRdui -= dIn * pi;
+            if (bIdx >= 0) {
+              const eb = net.eqOf[bIdx];
+              if (eb >= 0) band.add(e, eb, gfac * dBack * pb);
+            }
+          }
+          // pumps exhausting here
+          for (const k of this.pumpsAtBacking[i]) {
+            const pm = net.pumps[k];
+            const aIdx = pm.nodeIdx;
+            const pa = lumped ? this.xFrz[og + aIdx] * this.pWork[aIdx] : this.pWork[aIdx];
+            R += pm.q(gg, pa, pi);
+            const [dIn, dBack] = pm.dq(gg, pa, pi);
+            dRdui += dBack * pi;
+            const ea = net.eqOf[aIdx];
+            if (ea >= 0) band.add(e, ea, -gfac * dIn * pa);
+          }
+
+          // wall condensation/evaporation of water: linear in p, exact Jacobian
+          if (gg === this.gH2O && this.condS[i] > 0) {
+            const Sc = this.condS[i];
+            R += Sc * (this.psatNode[i] - pi);
+            dRdui -= Sc * pi;
           }
         }
-        // pumps exhausting here
-        for (const k of this.pumpsAtBacking[i]) {
-          const pm = net.pumps[k];
-          const aIdx = pm.nodeIdx;
-          const pa = this.pWork[aIdx];
-          const Qp = pm.q(g, pa, pi);
-          R += Qp;
-          const [dIn, dBack] = pm.dq(g, pa, pi);
-          dRdui += dBack * pi;
-          const ea = net.eqOf[aIdx];
-          if (ea >= 0) band.add(e, ea, -(dt / (V * pi)) * dIn * pa);
-        }
 
-        // wall condensation/evaporation of water: linear in p, exact Jacobian
-        if (g === this.gH2O && this.condS[i] > 0) {
-          const Sc = this.condS[i];
-          R += Sc * (this.psatNode[i] - pi);
-          dRdui -= Sc * pi;
+        const uOld = lumped ? this.uTotOld[i] : this.u[off + i];
+        const res = -(this.uWork[i] - uOld - gfac * R - this.dlnT[i]);
+        if (res < 0 && this.uWork[i] <= uMin) {
+          // Pinned at the pressure floor and still pushing down: hold it fixed
+          // for this iteration. Left in the system, its (clamped-away) step
+          // is still assumed by every neighbour's update, and Newton decays
+          // only linearly — ten iterations a step for a trace gas behind a
+          // turbo's compression ratio, which blocks all timestep growth.
+          band.setRowIdentity(e);
+          rhs[e] = 0;
+        } else {
+          rhs[e] = res;
+          band.add(e, e, 1 - gfac * dRdui + gfac * R);
         }
-
-        const gfac = dt / (V * pi);
-        rhs[e] = -(this.uWork[i] - this.u[off + i] - gfac * R - this.dlnT[i]);
-        band.add(e, e, 1 - gfac * dRdui + gfac * R);
       }
 
       band.equilibrate(rhs);
       if (!band.factor()) {
-        this.lastFail = `g=${g} iter=${iter} factor() zero/NaN pivot`;
+        this.lastFail = `${mode} g=${g} iter=${iter} factor() zero/NaN pivot`;
         return -1;
       }
       band.solve(rhs); // rhs now holds δu
@@ -667,12 +866,12 @@ export class Sim {
       let eMax = -1;
       for (let e = 0; e < nEq; e++) {
         if (!Number.isFinite(rhs[e])) {
-          this.lastFail = `g=${g} iter=${iter} non-finite delta at eq ${e} (${net.nodes[net.nodeOfEq[e]].id})`;
+          this.lastFail = `${mode} g=${g} iter=${iter} non-finite delta at eq ${e} (${net.nodes[net.nodeOfEq[e]].id})`;
           return -1;
         }
         const i = net.nodeOfEq[e];
         const cur = this.uWork[i];
-        const move = Math.max(U_MIN, Math.min(U_MAX, cur + rhs[e])) - cur;
+        const move = Math.max(uMin, Math.min(U_MAX, cur + rhs[e])) - cur;
         rhs[e] = move;
         const am = Math.abs(move);
         if (am > dmax) {
@@ -682,10 +881,10 @@ export class Sim {
       }
       this.lastWorstEq = eMax;
       this.lastDmax = dmax;
-      if ((globalThis as { CV_DEBUG?: boolean }).CV_DEBUG && iter > 0) {
+      if ((globalThis as { CV_DEBUG?: boolean }).CV_DEBUG && eMax >= 0) {
         const wi = net.nodeOfEq[eMax];
         console.log(
-          `  newton g=${g} it=${iter} dmax=${dmax.toExponential(2)} worst=${net.nodes[wi].id} u=${this.uWork[wi].toFixed(3)} p=${Math.exp(this.uWork[wi]).toExponential(2)}`,
+          `  newton ${mode} g=${g} it=${iter} dmax=${dmax.toExponential(2)} worst=${net.nodes[wi].id} u=${this.uWork[wi].toFixed(3)} p=${Math.exp(this.uWork[wi]).toExponential(2)}`,
         );
       }
       const damp = dmax > 3 ? 3 / dmax : 1;
@@ -696,16 +895,35 @@ export class Sim {
       if (dmax < opts.newtonTol) {
         for (let e = 0; e < nEq; e++) {
           const i = net.nodeOfEq[e];
-          this.uNew[off + i] = this.uWork[i];
+          if (lumped) this.pCand[i] = Math.exp(this.uWork[i]);
+          else this.uNew[off + i] = this.uWork[i];
         }
         return iter;
       }
     }
     this.lastFail =
-      `g=${g} no convergence in ${opts.maxNewton} iters; ` +
+      `${mode} g=${g} no convergence in ${opts.maxNewton} iters; ` +
       `worst=${this.lastWorstEq >= 0 ? this.net.nodes[this.net.nodeOfEq[this.lastWorstEq]].id : '?'} ` +
       `dmax=${this.lastDmax.toExponential(2)} u=${this.lastWorstEq >= 0 ? this.uWork[this.net.nodeOfEq[this.lastWorstEq]].toFixed(2) : '?'}`;
     return -1;
+  }
+
+  /**
+   * Does species g matter anywhere in the candidate state — above the
+   * don't-care pressure and above 1e-7 of its node's total? This is the same
+   * test the error estimate applies per entry. A gas that fails it at every
+   * node (helium at 1e-11 Torr in a foreline at 1e-2) cannot be measured, so
+   * the Newton iterations it happens to need must not hold the timestep down.
+   */
+  private speciesMatters(g: number): boolean {
+    const { net, nN } = this;
+    const off = g * nN;
+    for (let e = 0; e < net.nEq; e++) {
+      const i = net.nodeOfEq[e];
+      const un = this.uNew[off + i];
+      if (un >= U_CARE && Math.exp(un) >= 1e-7 * this.pTotWork[i]) return true;
+    }
+    return false;
   }
 
   private lastWorstEq = -1;
@@ -728,19 +946,42 @@ export class Sim {
       this.freeze(this.t + dtTry);
 
       let newtonIters = 0;
+      // iteration count that may hold back timestep growth: excludes species
+      // that are physically irrelevant everywhere (see speciesMatters)
+      let gateIters = 0;
       let ok = true;
+      const seg = this.stepSegregated;
       for (let outer = 0; outer <= opts.maxOuter && ok; outer++) {
         newtonIters = 0;
-        for (let g = 0; g < nS; g++) {
-          const it = this.newtonSpecies(g, dtTry);
+        gateIters = 0;
+        // pressure pass: one lumped solve for the totals, or (no bulk flow
+        // anywhere) the complete per-species solve
+        for (let g = 0; g < (seg ? 1 : nS); g++) {
+          const it = this.newton(g, dtTry, seg ? 'lumped' : 'species');
           if (it < 0) {
             ok = false;
             break;
           }
           newtonIters = Math.max(newtonIters, it);
+          if (seg || this.speciesMatters(g)) gateIters = Math.max(gateIters, it);
         }
         if (!ok || outer === opts.maxOuter) break;
         this.refreshTotalsFromCandidate();
+      }
+
+      // composition pass: each species with the bulk flow carrying the
+      // upstream mixture, at the totals the pressure pass just delivered
+      if (ok && seg) {
+        this.freezeAdvection();
+        for (let g = 0; g < nS; g++) {
+          const it = this.newton(g, dtTry, 'advective');
+          if (it < 0) {
+            ok = false;
+            break;
+          }
+          newtonIters = Math.max(newtonIters, it);
+          if (this.speciesMatters(g)) gateIters = Math.max(gateIters, it);
+        }
       }
 
       if (!ok) {
@@ -811,14 +1052,19 @@ export class Sim {
       for (let i = 0; i < nN; i++) this.rateNode[i] /= dtTry;
       this.stats.steps++;
       this.stats.maxNewtonIters = Math.max(this.stats.maxNewtonIters, newtonIters);
+      this.lastEst = est;
+      this.lastNewtonIters = newtonIters;
       this.duPrev.set(this.du);
+      for (let i = 0; i < nN; i++) {
+        this.duTotPrev[i] = Math.log(Math.max(this.totalAt(i), opts.pFloor)) - this.uTotOld[i];
+      }
       this.dtPrev = dtTry;
       this.estValid = true;
 
       this.afterAccept(dtTry);
 
       // adapt
-      if (newtonIters <= 3 && (est <= opts.errGrow || !this.estValid)) {
+      if (gateIters <= 3 && est <= opts.errGrow) {
         this.dt = Math.min(dtTry * 1.5, opts.dtMax);
       } else if (newtonIters >= opts.maxNewton - 8) {
         this.dt = Math.max(dtTry / 2, opts.dtMin);

@@ -121,7 +121,7 @@ function example3(): SystemDefinition {
   b.join('adap1', 1, 'tc1', 0);
 
   b.at(0, { type: 'pump', pumpId: 'rv1', on: true },
-    'An O-ring-sealed bell jar: the Viton gasket both outgasses and PERMEATES He and H2O straight through the bulk.');
+    'An O-ring-sealed bell jar: the Viton gasket both outgasses and PERMEATES — room air and water vapor diffuse straight through the bulk.');
   b.at(120, { type: 'pump', pumpId: 'diff1', on: true },
     'Diffusion pump boiler heating (~15 min, no moving parts). The system will bottom out near 1e-8 — not because the pump is weak, but because permeation is a floor no pump can fix. Check the Gas flow tab.');
   return b.build('Example 3 — bell jar + diffusion pump (permeation floor)');
@@ -356,7 +356,7 @@ function uhvLab(): SystemDefinition {
   b.part('tee-KF25', 'tee', 22.5, 4.25);
   b.part('pump-scroll-10', 'scroll', 25, 5.5);
   // all-metal roughing valve on the chamber side: every elastomer joint
-  // lives BEYOND it, or its He permeation would haunt the ion pump forever
+  // lives BEYOND it, or air and water permeating the O-rings would set the floor
   b.part('adapter', 'adap-rough', 10, 6.5, { flangeA: 'CF100', flangeB: 'CF16' }, 90);
   b.part('angle-CF16', 'roughvalve', 12, 7.5);
   b.part('adapter', 'adap-rough2', 13.5, 8.6, { flangeA: 'CF16', flangeB: 'KF25' });
@@ -389,7 +389,7 @@ function uhvLab(): SystemDefinition {
   const bakeEnd = 1800 + 24 * 3600;
   b.at(0, { type: 'pump', pumpId: 'scroll', on: true });
   b.at(2, { type: 'valve', edgeId: 'roughvalve', open: 1 },
-    'Roughing through the all-metal angle valve on the chamber side — every elastomer joint lives beyond it, or its He permeation would haunt the ion pump forever.');
+    'Roughing through the all-metal angle valve on the chamber side — every elastomer joint lives beyond it, or air and water permeating the O-rings would set the floor.');
   b.at(240, { type: 'valve', edgeId: 'roughvalve', open: 0 });
   b.at(245, { type: 'pump', pumpId: 'turbo', on: true });
   b.at(600, { type: 'valve', edgeId: 'gate', open: 1 });

@@ -29,6 +29,8 @@ export interface CompiledSystem {
   regionNode: Record<string, string>;
   /** `${partId}:${portIdx}` → engine node id */
   portNode: Record<string, string>;
+  /** part id → every engine node it owns, for parts with more nodes than paint regions (segmented tubes) */
+  partNodes: Record<string, string[]>;
   /** valve part id → engine edge id */
   valveEdge: Record<string, string>;
   /** valve part id → actuation time (s) */
@@ -61,6 +63,7 @@ export function compileSystem(sys: SystemDefinition): CompiledSystem {
   const leaks: EngineLeakSpec[] = [];
   const regionNode: Record<string, string> = {};
   const portNode: Record<string, string> = {};
+  const partNodes: Record<string, string[]> = {};
   const valveEdge: Record<string, string> = {};
   const valveActuate: Record<string, number> = {};
   const leakId: Record<string, string> = {};
@@ -107,7 +110,7 @@ export function compileSystem(sys: SystemDefinition): CompiledSystem {
           area = 2 * Math.PI * (D / 2) ** 2 + Math.PI * D * L;
         }
         const surfaces: SurfaceSpec[] = [{ area, material, baked: bool('baked') }];
-        if (def.data.elastomerBase) surfaces.push({ area: 40, material: 'viton' });
+        if (def.data.elastomerBase) surfaces.push({ area: 40, material: 'viton', seal: true });
         const nid = `${id}.n`;
         nodes.push({ id: nid, volume, surfaces, label: id });
         regionNode[`${id}:0`] = nid;
@@ -135,12 +138,10 @@ export function compileSystem(sys: SystemDefinition): CompiledSystem {
         nodes.push(...seg.nodes);
         edges.push(...seg.edges);
         const chain = [a, ...seg.nodes.map((n) => n.id), b];
-        for (let k = 0; k < chain.length - 1; k++) {
-          regionNode[`${id}:${k}`] = chain[Math.min(k + (k > 0 ? 0 : 0), chain.length - 1)];
-        }
         // paint spans by the node at their left end, last span by far port
         for (let k = 0; k < chain.length - 1; k++) regionNode[`${id}:${k}`] = chain[k];
         regionNode[`${id}:${chain.length - 2}`] = b;
+        partNodes[id] = chain;
         break;
       }
 
@@ -536,7 +537,7 @@ export function compileSystem(sys: SystemDefinition): CompiledSystem {
   for (const s of sealSurfaces) {
     const root = find(s.node);
     const ex = canonical.get(root);
-    if (ex) (ex.surfaces as SurfaceSpec[]).push({ area: s.area, material: 'viton' });
+    if (ex) (ex.surfaces as SurfaceSpec[]).push({ area: s.area, material: 'viton', seal: true });
   }
 
   const remap = (nid: string) => (nid.startsWith('_') ? nid : find(nid));
@@ -557,6 +558,7 @@ export function compileSystem(sys: SystemDefinition): CompiledSystem {
   for (const l of leaks) l.node = remap(l.node);
   for (const k of Object.keys(regionNode)) regionNode[k] = remap(regionNode[k]);
   for (const k of Object.keys(portNode)) portNode[k] = remap(portNode[k]);
+  for (const k of Object.keys(partNodes)) partNodes[k] = partNodes[k].map(remap);
 
   const engine: EngineSystemSpec = {
     nodes: [...canonical.values()],
@@ -568,7 +570,7 @@ export function compileSystem(sys: SystemDefinition): CompiledSystem {
     humidityRH: sys.humidityRH,
   };
 
-  return { engine, regionNode, portNode, valveEdge, valveActuate, leakId, warnings };
+  return { engine, regionNode, portNode, partNodes, valveEdge, valveActuate, leakId, warnings };
 }
 
 /**
@@ -588,12 +590,26 @@ export function translateAction(a: SimEventAction, c: CompiledSystem): SimEventA
     case 'bakeStart':
     case 'bakeEnd':
     case 'setTemperature': {
-      // UI-level targets are PART ids; the engine wants (post-merge) node ids
+      // UI-level targets are PART ids; the engine wants (post-merge) node
+      // ids — ALL of a part's nodes: a segmented tube owns one per segment
       if (a.nodeIds === 'all') return a;
-      const nodeIds = a.nodeIds
-        .map((pid) => c.regionNode[`${pid}:0`] ?? c.portNode[`${pid}:0`] ?? pid)
-        .filter((v, i, arr) => arr.indexOf(v) === i);
-      return { ...a, nodeIds };
+      const nodeIds = new Set<string>();
+      for (const pid of a.nodeIds) {
+        const prefix = `${pid}:`;
+        let found = false;
+        for (const nid of c.partNodes[pid] ?? []) {
+          nodeIds.add(nid);
+          found = true;
+        }
+        for (const key of Object.keys(c.regionNode)) {
+          if (key.startsWith(prefix)) {
+            nodeIds.add(c.regionNode[key]);
+            found = true;
+          }
+        }
+        if (!found) nodeIds.add(c.portNode[`${pid}:0`] ?? pid);
+      }
+      return { ...a, nodeIds: [...nodeIds] };
     }
     default:
       return a;

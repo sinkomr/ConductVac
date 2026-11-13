@@ -65,10 +65,12 @@ export interface MaterialSpec {
   q1Baked: number | null;
   /** species fractions after bake */
   speciesBaked: Partial<Record<GasId, number>> | null;
-  /** He permeation constant, Torr·L/s per cm² wetted seal area (elastomers only) */
-  permeationHe?: number;
-  /** H2O permeation constant, Torr·L/s per cm² wetted seal area (elastomers only) */
-  permeationH2O?: number;
+  /**
+   * Gas permeability, scc·cm/(s·cm²·atm) near 25 °C (elastomers only). A seal
+   * made of this material admits each gas in proportion to its partial
+   * pressure OUTSIDE — see sealPermeation() in data/materials.ts.
+   */
+  permeability?: Partial<Record<GasId, number>>;
   bakeable: boolean;
 }
 
@@ -102,6 +104,11 @@ export interface SurfaceSpec {
   material: MaterialId;
   /** already baked when the sim starts */
   baked?: boolean;
+  /**
+   * this surface is a seal with atmosphere on its far side: it permeates.
+   * (The same elastomer as a part INSIDE the chamber only outgasses.)
+   */
+  seal?: boolean;
 }
 
 export interface EngineNodeSpec {
@@ -121,8 +128,12 @@ export interface EngineNodeSpec {
 }
 
 export type ConductanceSpec =
-  /** circular tube; d, L in cm; bends90 adds 1.33·d equivalent length each */
-  | { kind: 'tube'; d: number; L: number; bends90?: number; lengthFactor?: number }
+  /**
+   * circular tube; d, L in cm; bends90 adds 1.33·d equivalent length each.
+   * entrance (default 1) weights the molecular entrance-aperture loss: the
+   * segments of one auto-segmented tube share a total weight of 1.
+   */
+  | { kind: 'tube'; d: number; L: number; bends90?: number; lengthFactor?: number; entrance?: number }
   /** thin aperture of given area (cm²) */
   | { kind: 'aperture'; area: number }
   /** aperture in series with a body tube (butterfly/throttle valves) */
@@ -166,6 +177,13 @@ export type PumpModelSpec =
   | {
       kind: 'turbo' | 'diffusion';
       sPeak: number; // L/s for N2
+      /**
+       * pumping speed per species relative to N2. Missing species use the
+       * class default (pumps.ts): light gases are NOT pumped √(28/M) faster —
+       * a turbo's blades are slow against H2's thermal speed, so datasheet
+       * H2 speeds sit slightly BELOW the N2 figure.
+       */
+      sRel?: Partial<Record<GasId, number>>;
       /** zero-flow compression ratio per species; missing species interpolated in sqrt(M) */
       k0: Partial<Record<GasId, number>>;
       pCritBack: number; // Torr

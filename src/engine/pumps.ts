@@ -45,12 +45,25 @@ function logSmoothstep(p: number, from: number, to: number): number {
  * rejecting forever. 1% fuzz on the backstream clip is physically invisible.
  */
 function smax(x: number, scale: number): number {
-  const eps = 1e-2 * scale + 1e-300;
+  const eps = SMAX_WIDTH * scale + 1e-300;
   return 0.5 * (x + Math.sqrt(x * x + eps * eps));
 }
+const SMAX_WIDTH = 1e-2;
+/** ∂smax/∂x */
 function dsmax(x: number, scale: number): number {
-  const eps = 1e-2 * scale + 1e-300;
+  const eps = SMAX_WIDTH * scale + 1e-300;
   return 0.5 * (1 + x / Math.sqrt(x * x + eps * eps));
+}
+/**
+ * ∂smax/∂scale. The smoothing width follows the local pressures, so it is
+ * part of the Jacobian: dropping it leaves Newton linearly convergent
+ * exactly where the clip is active — a species parked at the pump's
+ * compression equilibrium — and ten iterations a step there pins the
+ * timestep for hours of simulated time.
+ */
+function dsmaxScale(x: number, scale: number): number {
+  const eps = SMAX_WIDTH * scale + 1e-300;
+  return (0.5 * eps * SMAX_WIDTH) / Math.sqrt(x * x + eps * eps);
 }
 
 /**
@@ -90,7 +103,24 @@ export function k0ForGas(k0: Partial<Record<GasId, number>>, gas: GasId): number
   return Math.exp(pts[pts.length - 1][1]);
 }
 
-const SQRT28 = Math.sqrt(28);
+/**
+ * Class-typical pumping speed relative to N2 for the throughput pumps.
+ * Turbo: mean of five datasheets (Pfeiffer HiPace 80/300/700, Edwards
+ * nEXT300, Agilent TwisTorr 304 FS): He/N2 0.87–1.13, H2/N2 0.72–0.93,
+ * Ar/N2 0.93–1.00. Diffusion: Agilent VHS-4/VHS-6 quote He and H2 at
+ * 1.25× the air speed. Species not listed pump like N2; a catalog entry can
+ * override any of these with `sRel`.
+ */
+const S_REL_DEFAULT: Record<'turbo' | 'diffusion', Partial<Record<GasId, number>>> = {
+  turbo: { He: 1.0, H2: 0.85, Ar: 0.98 },
+  diffusion: { He: 1.25, H2: 1.25 },
+};
+
+export function relativeSpeed(
+  m: Extract<PumpModelSpec, { kind: 'turbo' | 'diffusion' }>, gas: GasId,
+): number {
+  return m.sRel?.[gas] ?? S_REL_DEFAULT[m.kind][gas] ?? 1;
+}
 
 export class PumpRuntime {
   readonly spec: EnginePumpSpec;
@@ -295,7 +325,7 @@ export class PumpRuntime {
         const common = this.spinFrac * this.rollFactor * this.critFactor;
         for (let gi = 0; gi < n; gi++) {
           const g = this.species[gi];
-          this.A[gi] = m.sPeak * (SQRT28 / Math.sqrt(GASES[g].M)) * common;
+          this.A[gi] = m.sPeak * relativeSpeed(m, g) * common;
           // compression is exponential in blade speed: K0_eff = K0^spinFrac
           // (bit-exact 1/K0 at full speed; collapses toward 1 while coasting,
           // so a power-failed turbo lets the foreline climb back through it)
@@ -385,8 +415,11 @@ export class PumpRuntime {
     const a = this.A[gi];
     if (a === 0) return [0, 0];
     const kap = this.kap[gi];
-    const s = dsmax(pIn - kap * pBack, pIn + kap * pBack);
-    return [a * s, -a * s * kap];
+    const x = pIn - kap * pBack;
+    const scale = pIn + kap * pBack;
+    const dx = dsmax(x, scale);
+    const ds = dsmaxScale(x, scale);
+    return [a * (dx + ds), a * kap * (ds - dx)];
   }
 
   /** Effective total speed for UI: Σ Q_g / p_total (L/s). */
