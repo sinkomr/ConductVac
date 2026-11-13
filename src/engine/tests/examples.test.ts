@@ -87,8 +87,13 @@ describe('bundled examples', () => {
     expect(ff.t).toBeGreaterThan(3600);
     expect(p).toBeLessThan(1e-6);
     expect(p).toBeGreaterThan(1e-10);
-    // He from permeation is a visible constituent
-    expect(sim.partialOf(ch, 'He')).toBeGreaterThan(1e-12);
+    // days in, with no leak, the only source of AIR is permeation through
+    // the Viton: it must be a visible constituent of the floor, next to the
+    // water (outgassing + permeation). Atmospheric helium is 5 ppm of what
+    // permeates and stays far below both.
+    expect(sim.partialOf(ch, 'air')).toBeGreaterThan(0.05 * p);
+    expect(sim.partialOf(ch, 'H2O')).toBeGreaterThan(sim.partialOf(ch, 'air'));
+    expect(sim.partialOf(ch, 'He')).toBeLessThan(1e-3 * p);
   });
 
   it('example 4: scripted bake reaches ~1e-10 Torr, H2-dominated', () => {
