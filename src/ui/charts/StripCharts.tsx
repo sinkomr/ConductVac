@@ -100,12 +100,13 @@ export function StripCharts() {
     };
   }, [gaugeIds.join(','), truthOverlay, logTime, unit, pinTick]);
 
-  // (re)create plot when structure changes; leave room for the legend row
+  // (re)create plot when structure changes. The legend floats inside the
+  // plot area (theme.css), so the canvas takes the host's full height.
   useEffect(() => {
     if (!hostRef.current) return;
     plotRef.current?.destroy();
     const el = hostRef.current;
-    const chartH = () => Math.max(140, el.clientHeight - 34);
+    const chartH = () => Math.max(120, el.clientHeight - 2);
     const plot = new uPlot({ ...opts, width: el.clientWidth - 8, height: chartH() }, [[], ...opts.series.slice(1).map(() => [])], el);
     plotRef.current = plot;
     zoomedRef.current = false;
@@ -193,12 +194,11 @@ export function StripCharts() {
   return (
     <div className="charts">
       <div className="chart-toolbar">
-        <label><input type="checkbox" checked={truthOverlay} onChange={(e) => st().setTruthOverlay(e.target.checked)} /> show true pressure</label>
+        <label><input type="checkbox" checked={truthOverlay} onChange={(e) => st().setTruthOverlay(e.target.checked)} /> true pressure</label>
         <label><input type="checkbox" checked={logTime} onChange={(e) => st().setLogTime(e.target.checked)} /> log time</label>
-        <span className="hint">y: {unit}</span>
         {pin ? (
-          <button className="btn" onClick={() => st().clearPin()} title="remove the comparison ghost">
-            ✕ ghost ({pin.label})
+          <button className="btn" onClick={() => st().clearPin()} title={`remove the comparison ghost (${pin.label})`}>
+            ✕ Unpin run
           </button>
         ) : (
           <button
@@ -209,8 +209,11 @@ export function StripCharts() {
             📌 Pin run
           </button>
         )}
-        <button className="btn" onClick={exportCsv}>CSV</button>
-        <button className="btn" onClick={exportPng}>PNG</button>
+        <div className="chart-export">
+          <button className="btn" onClick={exportCsv} title="download the gauge traces as CSV">CSV</button>
+          <button className="btn" onClick={exportPng} title="download the chart as an image">PNG</button>
+        </div>
+        <span className="hint chart-unit">pressure in {unit}</span>
       </div>
       <div ref={hostRef} className="chart-host" />
     </div>
