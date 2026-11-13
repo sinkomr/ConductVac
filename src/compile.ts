@@ -110,7 +110,7 @@ export function compileSystem(sys: SystemDefinition): CompiledSystem {
           area = 2 * Math.PI * (D / 2) ** 2 + Math.PI * D * L;
         }
         const surfaces: SurfaceSpec[] = [{ area, material, baked: bool('baked') }];
-        if (def.data.elastomerBase) surfaces.push({ area: 40, material: 'viton' });
+        if (def.data.elastomerBase) surfaces.push({ area: 40, material: 'viton', seal: true });
         const nid = `${id}.n`;
         nodes.push({ id: nid, volume, surfaces, label: id });
         regionNode[`${id}:0`] = nid;
@@ -537,7 +537,7 @@ export function compileSystem(sys: SystemDefinition): CompiledSystem {
   for (const s of sealSurfaces) {
     const root = find(s.node);
     const ex = canonical.get(root);
-    if (ex) (ex.surfaces as SurfaceSpec[]).push({ area: s.area, material: 'viton' });
+    if (ex) (ex.surfaces as SurfaceSpec[]).push({ area: s.area, material: 'viton', seal: true });
   }
 
   const remap = (nid: string) => (nid.startsWith('_') ? nid : find(nid));

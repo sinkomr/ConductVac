@@ -209,6 +209,7 @@ export function buildNetwork(spec: EngineSystemSpec): Net {
     for (const s of n.surfaces) {
       const sr = new SurfaceRuntime(idx, s);
       sr.ventRH = humidityRH;
+      sr.setOutsideGas(species, atmComp);
       surfaces.push(sr);
     }
   }

@@ -65,10 +65,12 @@ export interface MaterialSpec {
   q1Baked: number | null;
   /** species fractions after bake */
   speciesBaked: Partial<Record<GasId, number>> | null;
-  /** He permeation constant, Torr·L/s per cm² wetted seal area (elastomers only) */
-  permeationHe?: number;
-  /** H2O permeation constant, Torr·L/s per cm² wetted seal area (elastomers only) */
-  permeationH2O?: number;
+  /**
+   * Gas permeability, scc·cm/(s·cm²·atm) near 25 °C (elastomers only). A seal
+   * made of this material admits each gas in proportion to its partial
+   * pressure OUTSIDE — see sealPermeation() in data/materials.ts.
+   */
+  permeability?: Partial<Record<GasId, number>>;
   bakeable: boolean;
 }
 
@@ -102,6 +104,11 @@ export interface SurfaceSpec {
   material: MaterialId;
   /** already baked when the sim starts */
   baked?: boolean;
+  /**
+   * this surface is a seal with atmosphere on its far side: it permeates.
+   * (The same elastomer as a part INSIDE the chamber only outgasses.)
+   */
+  seal?: boolean;
 }
 
 export interface EngineNodeSpec {

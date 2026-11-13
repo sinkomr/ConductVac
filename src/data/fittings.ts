@@ -125,7 +125,7 @@ add({
   ]),
   defaults: { D: 305, L: 450, material: 'borosilicate', portFlange: 'ISO100', baked: false },
   data: { shape: 'cyl', elastomerBase: true },
-  fidelity: 'Bell jar seals on a large elastomer L-gasket: adds ~40 cm² Viton wetted area (outgassing + He/H2O permeation).',
+  fidelity: 'Bell jar seals on a large elastomer L-gasket: adds ~40 cm² Viton wetted area (outgassing + air/H2O permeation).',
 });
 add({
   id: 'chamber-cell', name: 'Small test cell 1 L', category: 'Chambers', kind: 'chamber',
