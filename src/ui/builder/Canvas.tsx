@@ -4,8 +4,8 @@ import { PART_BY_ID, portFlange } from '../../data/fittings';
 import { formatPressure, nodePartials, nodePressures, useStore } from '../../store';
 import { PartSymbol } from './PartSymbol';
 import { Colorbar } from '../colormap/Colorbar';
-import { CELL, portDir, portPos } from './geometry';
-import { routeWire } from './route';
+import { CELL, portPos } from './geometry';
+import { routeSystem } from './autoroute';
 import { canvasSvg } from './exportSvg';
 import { partsInRect } from './selectbox';
 import { hitTestWires, hitTooCloseToEnds, splicePlacement } from './splice';
@@ -298,6 +298,7 @@ export function Canvas() {
     }
   };
 
+  const routes = routeSystem(system); // cached per layout inside autoroute.ts
   const w = svgRef.current?.clientWidth ?? 800;
   const h = svgRef.current?.clientHeight ?? 600;
 
@@ -350,14 +351,10 @@ export function Canvas() {
           />
           {/* connections */}
           {system.connections.map((c) => {
-            const pa = system.parts.find((p) => p.id === c.a.part);
-            const pb = system.parts.find((p) => p.id === c.b.part);
-            if (!pa || !pb) return null;
-            // imports are validated (schema.ts), but never dereference a port blindly
-            if (!PART_BY_ID[pa.def]?.ports[c.a.port] || !PART_BY_ID[pb.def]?.ports[c.b.port]) return null;
-            const A = portPos(pa, c.a.port);
-            const B = portPos(pb, c.b.port);
-            const r = routeWire(A, portDir(pa, c.a.port), B, portDir(pb, c.b.port));
+            // routed together, around the parts and each other; a connection
+            // with a missing part or port simply has no route
+            const r = routes.get(c.id);
+            if (!r) return null;
             return (
               <g key={c.id}>
                 <path d={r.d} fill="none" stroke="#8f97a8" strokeWidth={5} opacity={0.85}
