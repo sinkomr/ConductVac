@@ -33,6 +33,7 @@ Load an example from the header dropdown (the scroll + turbo crossover is a good
 ## Building systems
 
 - Click a part in the palette, then click the canvas to place it (shift-click keeps placing).
+- **Wires route themselves** around parts and around each other: orthogonal runs with rounded corners, a smooth S-bend where two facing ports are up to a cell out of line. Lining ports up (parts snap to the grid) gives straight runs; **⌗ Tidy** re-assigns joints among equivalent ports to uncross them.
 - **Splice**: while placing a 2-port part (valve, nipple, trap…), hover an existing wire — it highlights green and a click cuts the part into the line.
 - Click two ports to connect them (or drop a part so its port lands on a compatible one). Port tooltips show the flange standard; mismatched flanges still join with a warning — insert an **Adapter/reducer** part for a proper joint.
 - Click a joint dot to add a KF mesh-screen centering ring (×0.7 transmission); shift-click disconnects.

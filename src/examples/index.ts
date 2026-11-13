@@ -41,9 +41,9 @@ function example1(): SystemDefinition {
   b.part('chamber-cyl', 'chamber1', 8, 2, { D: 368, L: 470, portFlange: 'KF25', material: 'ss304' });
   b.part('gauge-pirani', 'pirani1', 8.75, 0.5, { portFlange: 'KF25' });
   b.part('gauge-thermocouple', 'tc1', 10, 0.5, { portFlange: 'KF25' });
-  b.part('ball-KF25', 'ball1', 10, 7);
-  b.part('flex-KF25', 'hose1', 13, 7, { length: 1000 });
-  b.part('pump-rv-2stage-5', 'rv1', 17, 6);
+  b.part('ball-KF25', 'ball1', 9.5, 7, {}, 90);
+  b.part('flex-KF25', 'hose1', 12, 9, { length: 1000 });
+  b.part('pump-rv-2stage-5', 'rv1', 16, 10);
 
   b.join('chamber1', 6, 'pirani1', 0);
   b.join('chamber1', 0, 'tc1', 0);
@@ -64,14 +64,17 @@ function example2(): SystemDefinition {
   b.part('chamber-cyl', 'chamber1', 7, 2, { D: 300, L: 400, portFlange: 'CF100', material: 'ss304' });
   b.part('gauge-fullrange', 'frg1', 7.75, 0.5, { portFlange: 'CF100' });
   b.part('gauge-pirani', 'pirani1', 9, 0.5, { portFlange: 'CF100' });
-  b.part('gate-CF100', 'gate1', 13.5, 3.4);
-  b.part('pump-turbo-300', 'turbo1', 16.5, 2.5);
-  b.part('adapter', 'adap1', 10, 8, { flangeA: 'CF100', flangeB: 'KF25' }, 0);
-  b.part('angle-KF25', 'rough1', 12.5, 7.5);
-  b.part('flex-KF25', 'hose1', 15, 8, { length: 1000 });
-  b.part('tee-KF25', 'tee1', 19, 7.75);
-  b.part('flex-KF25', 'hose2', 20, 5.5, { length: 400 }, 90);
-  b.part('pump-scroll-10', 'scroll1', 21.5, 9);
+  // high-vacuum line straight out of the chamber's side port; the roughing
+  // bypass drops from the bottom port and comes round to the far side of
+  // the foreline tee — every port faces what it connects to
+  b.part('gate-CF100', 'gate1', 13.5, 2.5);
+  b.part('pump-turbo-300', 'turbo1', 17, 3.5);
+  b.part('flex-KF25', 'hose2', 21, 4.5, { length: 400 });
+  b.part('tee-KF25', 'tee1', 24, 4.25);
+  b.part('pump-scroll-10', 'scroll1', 24, 7.5);
+  b.part('adapter', 'adap1', 8.5, 7, { flangeA: 'CF100', flangeB: 'KF25' }, 90);
+  b.part('angle-KF25', 'rough1', 9, 9.5, {}, 90);
+  b.part('flex-KF25', 'hose1', 12, 10.5, { length: 1000 });
   b.part('leak', 'leak1', 5.5, 2.5, { qStd: 1e-6, portFlange: 'CF100' }, 270);
 
   b.join('chamber1', 0, 'frg1', 0);
@@ -79,11 +82,11 @@ function example2(): SystemDefinition {
   b.join('chamber1', 1, 'gate1', 0);
   b.join('gate1', 1, 'turbo1', 0);
   b.join('chamber1', 3, 'adap1', 0);
-  b.join('adap1', 1, 'rough1', 1);
-  b.join('rough1', 0, 'hose1', 0);
-  b.join('hose1', 1, 'tee1', 0);
+  b.join('adap1', 1, 'rough1', 0);
+  b.join('rough1', 1, 'hose1', 0);
+  b.join('hose1', 1, 'tee1', 1);
   b.join('turbo1', 1, 'hose2', 0);
-  b.join('hose2', 1, 'tee1', 1);
+  b.join('hose2', 1, 'tee1', 0);
   b.join('tee1', 2, 'scroll1', 0);
   b.join('chamber1', 5, 'leak1', 0);
 
@@ -105,12 +108,12 @@ function example3(): SystemDefinition {
   const b = new B();
   b.part('chamber-bell', 'bell1', 8, 2, { portFlange: 'ISO100' });
   b.part('gauge-fullrange', 'frg1', 9.5, 0.5, { portFlange: 'ISO100' });
-  b.part('pump-diff-300', 'diff1', 9, 7);
+  b.part('pump-diff-300', 'diff1', 8.5, 7);
   b.part('tee-KF25', 'tee1', 13, 7.75);
-  b.part('flex-KF25', 'hose1', 15, 9, { length: 600 });
-  b.part('pump-rv-2stage-16', 'rv1', 19, 8);
-  b.part('adapter', 'adap1', 15, 6, { flangeA: 'KF25', flangeB: 'KF16' });
-  b.part('gauge-thermocouple', 'tc1', 17.5, 6, {}, 90);
+  b.part('flex-KF25', 'hose1', 13, 11.25, { length: 600 }, 90);
+  b.part('pump-rv-2stage-16', 'rv1', 13, 13.75);
+  b.part('adapter', 'adap1', 16.5, 8, { flangeA: 'KF25', flangeB: 'KF16' });
+  b.part('gauge-thermocouple', 'tc1', 19, 8, {}, 90);
 
   b.join('bell1', 0, 'frg1', 0);
   b.join('bell1', 3, 'diff1', 0);
@@ -133,15 +136,15 @@ function example4(): SystemDefinition {
   const b = new B();
   b.part('chamber-cyl', 'chamber1', 7, 2, { D: 200, L: 300, portFlange: 'CF63', material: 'ss-ep' });
   b.part('gauge-hotcathode', 'ba1', 9, 0.5, { portFlange: 'CF63' });
-  b.part('rga', 'rga1', 5.5, 0.5, { portFlange: 'CF63' });
-  b.part('gate-CF63', 'gate1', 13, 3.4);
-  b.part('pump-turbo-80', 'turbo1', 15.5, 2.5);
-  b.part('flex-KF16', 'hose1', 19, 4, { length: 500 });
-  b.part('adapter', 'adap1', 22, 4, { flangeA: 'KF16', flangeB: 'KF25' });
-  b.part('pump-scroll-10', 'scroll1', 24, 3);
-  b.part('pump-ion-20', 'ion1', 9, 7.5);
-  b.part('adapter', 'adap2', 5, 4.5, { flangeA: 'CF63', flangeB: 'CF40' }, 90);
-  b.part('pump-neg-100', 'neg1', 3, 6);
+  b.part('rga', 'rga1', 7.75, 0.5, { portFlange: 'CF63' });
+  b.part('gate-CF63', 'gate1', 13, 2.5);
+  b.part('pump-turbo-80', 'turbo1', 16.5, 3.5);
+  b.part('flex-KF16', 'hose1', 20.5, 4.5, { length: 500 });
+  b.part('adapter', 'adap1', 24, 4.5, { flangeA: 'KF16', flangeB: 'KF25' });
+  b.part('pump-scroll-10', 'scroll1', 26.5, 5.5);
+  b.part('pump-ion-20', 'ion1', 8, 7.5);
+  b.part('adapter', 'adap2', 4.5, 4.5, { flangeA: 'CF63', flangeB: 'CF40' }, 180);
+  b.part('pump-neg-100', 'neg1', 1, 3.5, {}, 90);
 
   b.join('chamber1', 0, 'ba1', 0);
   b.join('chamber1', 6, 'rga1', 0);
@@ -179,24 +182,24 @@ function example5(): SystemDefinition {
   const b = new B();
   b.part('chamber-cyl', 'bigchamber', 3, 2, { D: 400, L: 800, portFlange: 'KF25', material: 'ss304' });
   b.part('gauge-pirani', 'pirani', 5, 0.5, { portFlange: 'KF25' });
-  b.part('flex-KF25', 'longhose', 10, 3, { length: 2000 });
-  b.part('chamber-cell', 'manifold', 15, 2.5, { D: 150, L: 250, portFlange: 'KF25' });
-  b.part('gauge-fullrange', 'frg', 16, 1, { portFlange: 'KF25' });
+  b.part('flex-KF25', 'longhose', 10, 2.5, { length: 2000 });
+  b.part('chamber-cell', 'manifold', 15, 2, { D: 150, L: 250, portFlange: 'KF25' });
+  b.part('gauge-fullrange', 'frg', 16, 0.5, { portFlange: 'KF25' });
 
   // high-vac stack below the manifold
-  b.part('adapter', 'adap-gate', 15.5, 5.2, { flangeA: 'KF25', flangeB: 'CF63' }, 90);
-  b.part('gate-CF63', 'gate', 15.5, 7.2, {}, 90);
+  b.part('adapter', 'adap-gate', 15.5, 5, { flangeA: 'KF25', flangeB: 'CF63' }, 90);
+  b.part('gate-CF63', 'gate', 15.5, 7, {}, 90);
   b.part('pump-turbo-80', 'turbo', 15, 9.5);
 
   // roughing branch: right-angle valve turns the line down into the foreline
   // tee (branch up), so the backing run goes straight through to the scroll
-  b.part('adapter', 'adap-rough', 19, 3, { flangeA: 'KF25', flangeB: 'KF16' });
-  b.part('angle-KF16', 'roughvalve', 21.5, 3, {}, 270);
-  b.part('flex-KF16', 'roughhose', 21.5, 6.5, { length: 600 }, 90);
-  b.part('tee-KF16', 'tee', 21.5, 8.75, {}, 180);
-  b.part('flex-KF16', 'backhose', 18.5, 9.5, { length: 400 });
-  b.part('adapter', 'adap-scroll', 25, 9.5, { flangeA: 'KF16', flangeB: 'KF25' });
-  b.part('pump-scroll-10', 'scroll', 26.5, 10.75);
+  b.part('adapter', 'adap-rough', 19, 2.5, { flangeA: 'KF25', flangeB: 'KF16' });
+  b.part('angle-KF16', 'roughvalve', 21.5, 2.5, {}, 270);
+  b.part('flex-KF16', 'roughhose', 21.5, 6, { length: 600 }, 90);
+  b.part('tee-KF16', 'tee', 21.5, 9.75, {}, 180);
+  b.part('flex-KF16', 'backhose', 18.5, 10.5, { length: 400 });
+  b.part('adapter', 'adap-scroll', 25, 10.5, { flangeA: 'KF16', flangeB: 'KF25' });
+  b.part('pump-scroll-10', 'scroll', 26.5, 11.5);
 
   b.join('bigchamber', 0, 'pirani', 0);
   b.join('bigchamber', 1, 'longhose', 0);
@@ -233,7 +236,7 @@ function example6(): SystemDefinition {
   b.part('vleak', 'vleak1', 6, 3.5, { volume: 1, C: 1e-6, portFlange: 'CF40' }, 270);
   b.part('adapter', 'adap1', 12, 3.5, { flangeA: 'CF40', flangeB: 'KF25' });
   b.part('ball-KF25', 'ball1', 14.5, 3.5);
-  b.part('pump-scroll-10', 'scroll1', 17, 3);
+  b.part('pump-scroll-10', 'scroll1', 17, 4.5);
 
   b.join('cell1', 0, 'frg1', 0);
   b.join('cell1', 3, 'vleak1', 0);
@@ -254,9 +257,9 @@ function starter(): SystemDefinition {
   b.part('chamber-cyl', 'chamber', 8, 2, { D: 250, L: 350, portFlange: 'KF25', material: 'ss304' });
   b.part('gauge-fullrange', 'gauge', 10, 0.5, { portFlange: 'KF25' });
   b.part('vent', 'vent', 6.5, 2.5, { ventFlange: 'KF25' }, 180);
-  b.part('ball-KF25', 'valve', 14, 3.5);
-  b.part('flex-KF25', 'hose', 16.5, 3.5, { length: 750 });
-  b.part('pump-scroll-10', 'pump', 20.5, 3);
+  b.part('ball-KF25', 'valve', 14, 2.5);
+  b.part('flex-KF25', 'hose', 16.5, 2.5, { length: 750 });
+  b.part('pump-scroll-10', 'pump', 20.5, 3.5);
 
   b.join('chamber', 0, 'gauge', 0);
   b.join('chamber', 5, 'vent', 0);
@@ -290,16 +293,16 @@ function coater(): SystemDefinition {
   b.part('gate-ISO160', 'gate', 8.5, 7, {}, 90);
   b.part('adapter', 'adap-diff', 8.5, 9.5, { flangeA: 'ISO160', flangeB: 'ISO100' }, 90);
   b.part('coldtrap-inline', 'trap', 9, 11, { on: false, portFlange: 'ISO100' }, 90);
-  b.part('pump-diff-300', 'diff', 11, 12.5);
+  b.part('pump-diff-300', 'diff', 11, 13.5);
 
   // rough line: angle valve turns the line down; it tees into the backing
   // run from above, and the RV sits at the end of the shared foreline
   b.part('adapter', 'adap-rough', 12.5, 4, { flangeA: 'ISO160', flangeB: 'KF25' });
   b.part('angle-KF25', 'roughvalve', 15, 4, {}, 270);
-  b.part('flex-KF25', 'roughhose', 19, 7, { length: 1500 }, 90);
-  b.part('tee-KF25', 'tee', 19, 13, {}, 180);
-  b.part('flex-KF25', 'backhose', 15, 13.75, { length: 800 });
-  b.part('pump-rv-2stage-16', 'rv', 22.5, 14.5);
+  b.part('flex-KF25', 'roughhose', 18, 9.25, { length: 1500 }, 90);
+  b.part('tee-KF25', 'tee', 18, 13.75, {}, 180);
+  b.part('flex-KF25', 'backhose', 14.5, 14.5, { length: 800 });
+  b.part('pump-rv-2stage-16', 'rv', 22, 15.5);
 
   b.join('chamber', 0, 'frg', 0);
   b.join('chamber', 6, 'pirani', 0);
@@ -350,40 +353,44 @@ function uhvLab(): SystemDefinition {
   b.part('payload-metal', 'holder', 4.5, 2.5, { material: 'ss-ep', area: 300, volume: 0.3, portFlange: 'CF100' }, 270);
   b.part('payload-polymer', 'insulators', 4.5, 4.5, { material: 'alumina', area: 50, volume: 0.05, portFlange: 'CF100' }, 270);
 
-  b.part('gate-CF100', 'gate', 13, 3.4);
-  b.part('pump-turbo-300', 'turbo', 16, 2.5);
-  b.part('flex-KF25', 'backhose', 20, 4.5, { length: 600 });
-  b.part('tee-KF25', 'tee', 22.5, 4.25);
-  b.part('pump-scroll-10', 'scroll', 25, 5.5);
+  // Laid out so every port faces what it connects to: the high-vacuum line
+  // runs right from the chamber's lower port, the roughing bypass runs along
+  // the top and comes back into the foreline tee from the far side, and the
+  // two holding pumps hang below.
+  b.part('gate-CF100', 'gate', 13, 4.5);
+  b.part('pump-turbo-300', 'turbo', 17, 5.5);
+  b.part('flex-KF25', 'backhose', 21, 6.5, { length: 600 });
+  b.part('tee-KF25', 'tee', 24, 6.25);
+  b.part('pump-scroll-10', 'scroll', 24, 9.5);
   // all-metal roughing valve on the chamber side: every elastomer joint
   // lives BEYOND it, or air and water permeating the O-rings would set the floor
-  b.part('adapter', 'adap-rough', 10, 6.5, { flangeA: 'CF100', flangeB: 'CF16' }, 90);
-  b.part('angle-CF16', 'roughvalve', 12, 7.5);
-  b.part('adapter', 'adap-rough2', 13.5, 8.6, { flangeA: 'CF16', flangeB: 'KF25' });
-  b.part('flex-KF25', 'roughhose', 15.5, 8.6, { length: 1200 });
+  b.part('adapter', 'adap-rough', 12.5, 2.5, { flangeA: 'CF100', flangeB: 'CF16' });
+  b.part('angle-CF16', 'roughvalve', 33.5, 5.5);
+  b.part('adapter', 'adap-rough2', 31, 6.5, { flangeA: 'CF16', flangeB: 'KF25' }, 180);
+  b.part('flex-KF25', 'roughhose', 27.5, 6.5, { length: 1200 });
 
-  b.part('adapter', 'adap-ion', 7.5, 7, { flangeA: 'CF100', flangeB: 'CF160' }, 90);
-  b.part('pump-ion-150', 'ion', 6.5, 9);
-  b.part('adapter', 'adap-neg', 3.5, 5.8, { flangeA: 'CF100', flangeB: 'CF40' });
-  b.part('pump-neg-100', 'neg', 1, 6.5);
+  b.part('adapter', 'adap-ion', 9, 9.5, { flangeA: 'CF100', flangeB: 'CF160' }, 90);
+  b.part('pump-ion-150', 'ion', 8.5, 12.5);
+  b.part('adapter', 'adap-neg', 8, 7, { flangeA: 'CF100', flangeB: 'CF40' }, 90);
+  b.part('pump-neg-100', 'neg', 3.5, 8, {}, 90);
 
   b.join('chamber', 0, 'ba', 0);
   b.join('chamber', 6, 'frg', 0);
   b.join('chamber', 5, 'holder', 0);
   b.join('chamber', 4, 'insulators', 0);
-  b.join('chamber', 1, 'gate', 0);
+  b.join('chamber', 2, 'gate', 0);
   b.join('gate', 1, 'turbo', 0);
   b.join('turbo', 1, 'backhose', 0);
   b.join('backhose', 1, 'tee', 0);
   b.join('tee', 2, 'scroll', 0);
-  b.join('chamber', 2, 'adap-rough', 0);
+  b.join('chamber', 1, 'adap-rough', 0);
   b.join('adap-rough', 1, 'roughvalve', 1);
   b.join('roughvalve', 0, 'adap-rough2', 0);
-  b.join('adap-rough2', 1, 'roughhose', 0);
-  b.join('roughhose', 1, 'tee', 1);
-  b.join('chamber', 3, 'adap-ion', 0);
+  b.join('adap-rough2', 1, 'roughhose', 1);
+  b.join('roughhose', 0, 'tee', 1);
+  b.join('chamber', 7, 'adap-ion', 0);
   b.join('adap-ion', 1, 'ion', 0);
-  b.join('chamber', 7, 'adap-neg', 0);
+  b.join('chamber', 3, 'adap-neg', 0);
   b.join('adap-neg', 1, 'neg', 0);
 
   const bakeEnd = 1800 + 24 * 3600;

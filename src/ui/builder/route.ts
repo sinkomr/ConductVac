@@ -27,6 +27,10 @@ const REVERSAL = 400;
 const EXIT_VIOL = 250;
 const ENTRY_VIOL = 250;
 const DIAGONAL = 600;
+/** largest sideways offset bridged by a slanted straight wire instead of an S-jog */
+const SLANT_MAX = CELL * 0.25;
+/** largest sideways offset between facing ports drawn as one smooth S-bend */
+const S_BEND_MAX = CELL;
 
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
 const segDir = (a: Pt, b: Pt): Dir => {
@@ -117,12 +121,41 @@ function toPath(pts: Pt[]): string {
   return d;
 }
 
+/** Turn a raw polyline into a drawable wire (collinear runs merged, corners rounded). */
+export function finishRoute(points: Pt[]): RoutedWire {
+  const pts = normalize(points);
+  return { d: toPath(pts), mid: midpoint(pts), points: pts };
+}
+
 export function routeWire(A: Pt, dirA: Dir, B: Pt, dirB: Dir): RoutedWire {
   const L = Math.hypot(B.x - A.x, B.y - A.y);
   if (L < 1e-6) return { d: `M${A.x} ${A.y}`, mid: A, points: [A] };
   if (L <= 0.75 * CELL) {
     const pts = [A, B];
     return { d: toPath(pts), mid: midpoint(pts), points: pts };
+  }
+
+  // Two ports facing each other but a few pixels out of line: a strictly
+  // orthogonal wire needs an S-jog smaller than its own corner radius, which
+  // reads as a kink. Within a quarter cell (and no steeper than 1:3) a
+  // straight, barely slanted wire is the cleaner drawing.
+  if (sameDir(dirA, { dx: -dirB.dx, dy: -dirB.dy })) {
+    const along = (B.x - A.x) * dirA.dx + (B.y - A.y) * dirA.dy;
+    const across = Math.abs((B.x - A.x) * dirA.dy - (B.y - A.y) * dirA.dx);
+    if (across > 1e-6 && across <= SLANT_MAX && along >= 3 * across) {
+      const pts = [A, B];
+      return { d: toPath(pts), mid: midpoint(pts), points: pts };
+    }
+    // Up to a cell out of line, the orthogonal Z has two corners packed into
+    // a jog barely longer than their radius — a squiggle. One smooth S-bend
+    // (a hose would do exactly this) leaves both ports along their normals.
+    // Hit-testing and the joint handle use the chord.
+    if (across > SLANT_MAX && across <= S_BEND_MAX && along >= 1.2 * across) {
+      const k = along / 2;
+      const d = `M${A.x} ${A.y} C${A.x + k * dirA.dx} ${A.y + k * dirA.dy} ` +
+        `${B.x + k * dirB.dx} ${B.y + k * dirB.dy} ${B.x} ${B.y}`;
+      return { d, mid: { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 }, points: [A, B] };
+    }
   }
 
   const s = Math.min(STUB, L / 2);

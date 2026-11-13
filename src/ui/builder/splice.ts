@@ -1,8 +1,7 @@
 import type { PartDef } from '../../data/fittings';
-import { PART_BY_ID } from '../../data/fittings';
 import type { PartInstance, SystemDefinition } from '../../types';
-import { CELL, portDir, portPos, type Dir, type Pt } from './geometry';
-import { routeWire } from './route';
+import { CELL, portPos, type Dir, type Pt } from './geometry';
+import { routeSystem } from './autoroute';
 
 /**
  * Splice-into-wire hit testing: while placing a 2-port part, hovering near
@@ -28,15 +27,11 @@ const distToSegment = (p: Pt, a: Pt, b: Pt): { d: number; q: Pt } => {
 };
 
 export function hitTestWires(system: SystemDefinition, ptPx: Pt, tolPx: number): WireHit | null {
-  const byId = new Map(system.parts.map((p) => [p.id, p]));
+  const routes = routeSystem(system);
   let best: (WireHit & { d: number }) | null = null;
   for (const c of system.connections) {
-    const pa = byId.get(c.a.part);
-    const pb = byId.get(c.b.part);
-    if (!pa || !pb || !PART_BY_ID[pa.def]?.ports[c.a.port] || !PART_BY_ID[pb.def]?.ports[c.b.port]) continue;
-    const A = portPos(pa, c.a.port);
-    const B = portPos(pb, c.b.port);
-    const r = routeWire(A, portDir(pa, c.a.port), B, portDir(pb, c.b.port));
+    const r = routes.get(c.id);
+    if (!r) continue;
     for (let i = 0; i < r.points.length - 1; i++) {
       const a = r.points[i];
       const b = r.points[i + 1];
