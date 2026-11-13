@@ -1,7 +1,38 @@
 import { useState } from 'react';
 import { PART_BY_ID } from '../../data/fittings';
 import { MATERIALS } from '../../data/materials';
-import { formatPressure, nodePartials, nodePressures, nodeTemps, selectedOne, useStore } from '../../store';
+import { formatPressure, liveBool, nodePartials, nodePressures, nodeTemps, selectedOne, useStore } from '../../store';
+
+/**
+ * Number input that tolerates the half-typed states a controlled input
+ * cannot: an empty box, or "5" on the way to "500". Only a finite, in-range
+ * value is committed (an empty box used to commit 0 — a zero-length tube);
+ * leaving the field snaps it back to the last committed value.
+ */
+function NumberField(props: {
+  value: number; min?: number; max?: number; step?: number; onCommit: (v: number) => void;
+}) {
+  const { value, min, max, step, onCommit } = props;
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <input
+      type="number"
+      value={draft ?? String(value)}
+      min={min}
+      max={max}
+      step={step ?? 1}
+      onChange={(e) => {
+        const text = e.target.value;
+        setDraft(text);
+        const v = Number(text);
+        if (text.trim() !== '' && Number.isFinite(v) && (min === undefined || v >= min) && (max === undefined || v <= max)) {
+          onCommit(v);
+        }
+      }}
+      onBlur={() => setDraft(null)}
+    />
+  );
+}
 
 const TEMP_KINDS = ['chamber', 'tube', 'flex', 'bellows', 'tee', 'cross', 'payload'];
 
@@ -45,6 +76,7 @@ export function Inspector() {
     );
   }
   const def = PART_BY_ID[inst.def];
+  const liveState = useStore.getState();
   const node = compiled?.regionNode[`${inst.id}:0`] ?? compiled?.portNode[`${inst.id}:0`];
   const p = node ? nodePressures.get(node) : undefined;
   const partials = node ? nodePartials.get(node) : undefined;
@@ -74,9 +106,10 @@ export function Inspector() {
             return (
               <label key={pd.key} className="prop-row">
                 <span>{pd.label}</span>
+                {/* while a sim runs, show what the part IS doing, not its start condition */}
                 <input
                   type="checkbox"
-                  checked={Boolean(val)}
+                  checked={liveBool(liveState, inst.id, pd.key) ?? Boolean(val)}
                   onChange={(e) => setParam(inst.id, pd.key, e.target.checked)}
                 />
               </label>
@@ -116,13 +149,13 @@ export function Inspector() {
             return (
               <label key={pd.key} className="prop-row">
                 <span>{pd.label}{pd.unit ? ` (${pd.unit})` : ''}</span>
-                <input
-                  type="number"
+                <NumberField
+                  key={inst.id}
                   value={Number(val)}
                   min={pd.min}
                   max={pd.max}
-                  step={pd.step ?? 1}
-                  onChange={(e) => setParam(inst.id, pd.key, Number(e.target.value))}
+                  step={pd.step}
+                  onCommit={(v) => setParam(inst.id, pd.key, v)}
                 />
               </label>
             );

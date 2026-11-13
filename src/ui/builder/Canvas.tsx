@@ -94,29 +94,32 @@ export function Canvas() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'SELECT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
       const s = st();
+      // e.key carries the SHIFTED character: Ctrl+Shift+Z arrives as 'Z', and
+      // Caps Lock upper-cases every letter shortcut
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       if (e.key === 'Escape') {
         s.setPlacing(null);
         s.select(null);
         setMarquee(null);
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && s.selection.length) {
         s.deleteParts(s.selection);
-      } else if ((e.key === 'r' || e.key === 'R') && s.selection.length && !e.ctrlKey && !e.metaKey) {
+      } else if (key === 'r' && s.selection.length && !e.ctrlKey && !e.metaKey) {
         s.rotateSelection();
-      } else if (e.key === 'z' && (e.ctrlKey || e.metaKey)) {
+      } else if (key === 'z' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         if (e.shiftKey) s.redo();
         else s.undo();
-      } else if (e.key === 'y' && (e.ctrlKey || e.metaKey)) {
+      } else if (key === 'y' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         s.redo();
-      } else if (e.key === 'c' && (e.ctrlKey || e.metaKey)) {
+      } else if (key === 'c' && (e.ctrlKey || e.metaKey)) {
         s.copySelection();
-      } else if (e.key === 'v' && (e.ctrlKey || e.metaKey)) {
+      } else if (key === 'v' && (e.ctrlKey || e.metaKey)) {
         s.pasteClipboard();
-      } else if (e.key === 'd' && (e.ctrlKey || e.metaKey)) {
+      } else if (key === 'd' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         s.duplicateSelection();
-      } else if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
+      } else if (key === 'a' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         s.selectAll();
       }
@@ -324,6 +327,8 @@ export function Canvas() {
             const pa = system.parts.find((p) => p.id === c.a.part);
             const pb = system.parts.find((p) => p.id === c.b.part);
             if (!pa || !pb) return null;
+            // imports are validated (schema.ts), but never dereference a port blindly
+            if (!PART_BY_ID[pa.def]?.ports[c.a.port] || !PART_BY_ID[pb.def]?.ports[c.b.port]) return null;
             const A = portPos(pa, c.a.port);
             const B = portPos(pb, c.b.port);
             const r = routeWire(A, portDir(pa, c.a.port), B, portDir(pb, c.b.port));
@@ -381,14 +386,7 @@ export function Canvas() {
                 }}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
-                  const kind = def.kind;
-                  if (kind.startsWith('valve') && kind !== 'valve-butterfly') {
-                    st().setParam(inst.id, 'open', !inst.params.open);
-                  } else if (kind === 'pump' || kind.startsWith('coldtrap')) {
-                    st().setParam(inst.id, 'on', !inst.params.on);
-                  } else if (kind === 'gauge') {
-                    st().setParam(inst.id, 'enabled', !inst.params.enabled);
-                  }
+                  st().toggleLive(inst.id);
                 }}
                 onPointerEnter={(e) => setHover({ x: e.clientX, y: e.clientY, inst })}
                 onPointerMove={(e) => setHover({ x: e.clientX, y: e.clientY, inst })}

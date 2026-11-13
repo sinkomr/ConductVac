@@ -27,6 +27,8 @@ export function StripCharts() {
   const st = useStore.getState;
   const hostRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
+  // true while the user has drag-zoomed: new data must then leave the scales alone
+  const zoomedRef = useRef(false);
 
   const gaugeIds = chartHistory.gaugeIds;
   const pin = getPinnedRun();
@@ -89,6 +91,12 @@ export function StripCharts() {
       ],
       legend: { live: true },
       cursor: { drag: { x: true, y: false } },
+      hooks: {
+        // a drag-zoom ends with a non-empty selection; uPlot's own
+        // double-click handler restores the full range
+        setSelect: [(u) => { if (u.select.width > 0) zoomedRef.current = true; }],
+        ready: [(u) => u.over.addEventListener('dblclick', () => { zoomedRef.current = false; })],
+      },
     };
   }, [gaugeIds.join(','), truthOverlay, logTime, unit, pinTick]);
 
@@ -100,6 +108,9 @@ export function StripCharts() {
     const chartH = () => Math.max(140, el.clientHeight - 34);
     const plot = new uPlot({ ...opts, width: el.clientWidth - 8, height: chartH() }, [[], ...opts.series.slice(1).map(() => [])], el);
     plotRef.current = plot;
+    zoomedRef.current = false;
+    // handle for the browser smoke test (and for poking at the chart in devtools)
+    (el as HTMLDivElement & { uplot?: uPlot }).uplot = plot;
     const ro = new ResizeObserver(() => plot.setSize({ width: el.clientWidth - 8, height: chartH() }));
     ro.observe(el);
     return () => {
@@ -127,10 +138,13 @@ export function StripCharts() {
       }
     }
     const f = UNIT_FACTOR[unit];
-    if (f !== 1) {
-      vals = vals.map((a) => a.map((v) => v * f));
-      trs = trs.map((a) => a.map((v) => v * f));
-    }
+    // a gauge with no output is NaN live and null in a pinned (JSON-copied)
+    // run: both become gaps — never NaN in the legend, never null·f = 0 on a
+    // log axis
+    const scaled = (a: (number | null)[]): (number | null)[] =>
+      a.map((v) => (v !== null && Number.isFinite(v) ? v * f : null));
+    const liveVals = vals.map(scaled);
+    const liveTrs = trs.map(scaled);
     let data: uPlot.AlignedData;
     if (pin) {
       let gt = pin.history.t;
@@ -142,13 +156,14 @@ export function StripCharts() {
           gv = gv.map((a) => a.slice(gi));
         }
       }
-      if (f !== 1) gv = gv.map((a) => a.map((v) => v * f));
-      const merged = mergeAligned(t, [...vals, ...(truthOverlay ? trs : [])], gt, gv);
+      const merged = mergeAligned(t, [...liveVals, ...(truthOverlay ? liveTrs : [])], gt, gv.map(scaled));
       data = [merged.t, ...merged.live, ...merged.ghost] as uPlot.AlignedData;
     } else {
-      data = [t, ...vals, ...(truthOverlay ? trs : [])] as uPlot.AlignedData;
+      data = [t, ...liveVals, ...(truthOverlay ? liveTrs : [])] as uPlot.AlignedData;
     }
-    plot.setData(data);
+    // resetScales = false keeps a drag-zoom in place while samples stream in
+    plot.setData(data, !zoomedRef.current);
+    if (zoomedRef.current) plot.redraw();
   }, [chartTick, truthOverlay, logTime, unit, pinTick]);
 
   const exportCsv = () => {

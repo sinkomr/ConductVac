@@ -15,9 +15,9 @@ export interface AlignedMerge {
 /** Both time arrays must be ascending (chart history is appended in order). */
 export function mergeAligned(
   liveT: number[],
-  liveSeries: number[][],
+  liveSeries: (number | null)[][],
   ghostT: number[],
-  ghostSeries: number[][],
+  ghostSeries: (number | null)[][],
 ): AlignedMerge {
   const t: number[] = [];
   const liveIdx: number[] = [];
@@ -41,7 +41,7 @@ export function mergeAligned(
       ghostIdx.push(j++);
     }
   }
-  const pick = (series: number[][], idx: number[]): (number | null)[][] =>
+  const pick = (series: (number | null)[][], idx: number[]): (number | null)[][] =>
     series.map((s) => idx.map((k) => (k >= 0 ? s[k] : null)));
   return { t, live: pick(liveSeries, liveIdx), ghost: pick(ghostSeries, ghostIdx) };
 }

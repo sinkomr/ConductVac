@@ -5,5 +5,6 @@ export function downloadBlob(blob: Blob, name: string): void {
   a.href = url;
   a.download = name;
   a.click();
-  URL.revokeObjectURL(url);
+  // Safari starts the download asynchronously; revoking in the same task can cancel it
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }

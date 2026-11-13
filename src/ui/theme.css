@@ -344,3 +344,7 @@ html, body { overscroll-behavior: none; }
   .u-legend { padding-left: 8px !important; font-size: 10.5px !important; }
   .tooltip { display: none; } /* hover doesn't exist on touch; tap → inspector */
 }
+
+/* render-error fallback (main.tsx ErrorBoundary) */
+.crash { max-width: 640px; margin: 10vh auto; padding: 24px; color: #d7dbe3; font-family: system-ui, sans-serif; line-height: 1.5; }
+.crash pre { white-space: pre-wrap; background: #1b1e24; padding: 12px; border-radius: 6px; color: #ff9d9d; }
