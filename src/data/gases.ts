@@ -1,7 +1,7 @@
 import type { GasId, GasSpec } from '../types';
 import { M_AIR, MU_AIR } from '../types';
 
-/** Gas table (§2.7): M in g/mol, μ at 20 °C in µPa·s. */
+/** Gas table: M in g/mol, μ at 20 °C in µPa·s. */
 export const GASES: Record<GasId, GasSpec> = {
   N2: { id: 'N2', name: 'Nitrogen', M: 28, mu: 17.9, color: '#4c78a8' },
   O2: { id: 'O2', name: 'Oxygen', M: 32, mu: 20.7, color: '#e45756' },

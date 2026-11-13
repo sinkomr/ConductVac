@@ -3,7 +3,7 @@ import { useStore } from '../../store';
 import type { ChamberDiagnosis } from '../../engine/report';
 
 /**
- * Gas-load flow view (§3.3): sources (leaks, outgassing, permeation) →
+ * Gas-load flow view: sources (leaks, outgassing, permeation) →
  * network → sinks (pumps), ribbon width ∝ throughput, plus the per-chamber
  * "what's limiting me" diagnosis with culprit highlighting.
  */

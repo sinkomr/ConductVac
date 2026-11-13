@@ -3,7 +3,7 @@ import type { ScriptRow, SimEventAction } from '../../types';
 import { useStore } from '../../store';
 
 /**
- * Timeline event scripting (§3.2): an editable table — at t = X do Y.
+ * Timeline event scripting: an editable table — at t = X do Y.
  * Targets are part ids; the compiler translates them to engine ids on load.
  */
 

@@ -1,6 +1,6 @@
 /**
  * Perceptually-uniform viridis colormap over log10(pressure), 12 decades:
- * 1e-9 → 760 Torr (§3.3). 17-stop lookup with linear interpolation.
+ * 1e-9 → 760 Torr. 17-stop lookup with linear interpolation.
  */
 
 const VIRIDIS: [number, number, number][] = [

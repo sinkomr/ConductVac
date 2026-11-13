@@ -26,4 +26,4 @@ export default defineConfig({
     modulePreload: false,
     rollupOptions: { output: { inlineDynamicImports: true } },
   },
-} as any);
+});

@@ -4,7 +4,7 @@ import {
 } from '../data/gaugespecs';
 
 /**
- * Gauges (§1.5): simulated instruments that lie realistically. A gauge
+ * Gauges: simulated instruments that lie realistically. A gauge
  * produces a READING distinct from true pressure: gas-species sensitivity,
  * range clipping, first-order response lag, noise, strike/trip behavior.
  */
