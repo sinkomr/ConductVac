@@ -228,17 +228,33 @@ body {
 .tab.active { background: #1e2128; color: #e8ecf3; }
 .tabpanel { flex: 1; overflow: auto; background: #1e2128; padding: 8px 12px; }
 
-.charts { display: flex; flex-direction: column; height: 100%; }
-.chart-toolbar { display: flex; gap: 14px; align-items: center; margin-bottom: 4px; color: #9aa2b1; }
-.chart-host { flex: 1; min-height: 0; }
+/* Strip chart: controls in a narrow column on the left, legend floating
+   inside the plot — the chart itself gets the panel's full height. */
+.charts { display: flex; flex-direction: row; gap: 10px; height: 100%; }
+.chart-toolbar {
+  display: flex; flex-direction: column; gap: 8px; align-items: stretch;
+  flex: 0 0 128px; color: #9aa2b1; font-size: 12.5px;
+}
+.chart-toolbar label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.chart-toolbar .btn { width: 100%; }
+.chart-export { display: flex; gap: 6px; }
+.chart-unit { margin-top: auto; }
+.chart-host { flex: 1; min-width: 0; min-height: 0; }
+.chart-host .uplot { position: relative; }
 
-/* uPlot legend: dark, compact, single row under the chart */
+/* uPlot legend: a small translucent card in the plot's top-right corner,
+   where a pump-down curve has already left; one series per line */
 .u-legend {
   color: #c8cdd8 !important;
   font-size: 11.5px !important;
   text-align: left !important;
-  padding: 2px 0 0 40px !important;
 }
+.chart-host .u-legend {
+  position: absolute; top: 6px; right: 12px; z-index: 2;
+  width: auto !important; margin: 0 !important; padding: 4px 8px !important;
+  background: #1b1e24d9; border: 1px solid #2c3038; border-radius: 6px;
+}
+.chart-host .u-legend.u-inline tr { display: block; margin-right: 0; }
 .u-legend .u-series > * { padding: 1px 6px 1px 0 !important; }
 .u-legend .u-marker { width: 12px !important; height: 4px !important; margin-right: 4px; }
 .u-legend .u-value { color: #9fd7ff !important; font-variant-numeric: tabular-nums; }
@@ -341,7 +357,12 @@ html, body { overscroll-behavior: none; }
   .colorbar-title { font-size: 9.5px; }
   .colorbar-ticks { font-size: 8px; }
 
-  .u-legend { padding-left: 8px !important; font-size: 10.5px !important; }
+  /* narrow screens: controls back in a wrapping row above the chart */
+  .charts { flex-direction: column; gap: 4px; }
+  .chart-toolbar { flex: 0 0 auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+  .chart-toolbar .btn { width: auto; }
+  .chart-unit { margin-top: 0; }
+  .u-legend { font-size: 10.5px !important; }
   .tooltip { display: none; } /* hover doesn't exist on touch; tap → inspector */
 }
 
