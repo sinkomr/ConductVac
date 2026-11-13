@@ -14,5 +14,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run lint
       - run: npx vitest run
       - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run smoke
+      - run: npm run build:portable
+      - run: npm run smoke:portable

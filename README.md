@@ -25,6 +25,7 @@ npm run dev        # development server
 npm test           # engine validation suite (§ Physics below)
 npm run build      # static production build in dist/
 npm run smoke      # headless browser pass over dist/: every example must render clean
+npm run lint       # ESLint (TypeScript + React hooks rules)
 ```
 
 Load an example from the header dropdown (the scroll + turbo crossover is a good first tour), press **Run**, and raise the speed. The examples narrate themselves — a lesson line appears above the tabs as the script reaches each teaching moment. Double-click the gate valve mid-rough-down to see why crossover discipline matters.
@@ -67,7 +68,7 @@ Load an example from the header dropdown (the scroll + turbo crossover is a good
 
 ## Run it anywhere (offline)
 
-`npm run build:portable` produces **`dist-portable/conductvac.html`** — the whole app in one self-contained file (plus a ready-to-email zip). Double-click it and it runs entirely locally in any modern browser: no server, no install, no network access at any point. Everything is inlined, and the engine worker is spawned from a Blob URL — which is what lets it run from `file://`, where browsers refuse to load module and worker *files*. Only differences from the website: the Share button shows a copy-me prompt instead of silently reaching the clipboard (clipboard needs https), and autosave lives in that browser's localStorage.
+`npm run build:portable` produces **`dist-portable/conductvac.html`** (and `npm run smoke:portable` opens it from `file://` in a headless browser to confirm the engine runs there) — the whole app in one self-contained file (plus a ready-to-email zip). Double-click it and it runs entirely locally in any modern browser: no server, no install, no network access at any point. Everything is inlined, and the engine worker is spawned from a Blob URL — which is what lets it run from `file://`, where browsers refuse to load module and worker *files*. Only differences from the website: the Share button shows a copy-me prompt instead of silently reaching the clipboard (clipboard needs https), and autosave lives in that browser's localStorage.
 
 ## Sharing & files
 
@@ -182,12 +183,12 @@ src/data       gases, materials, flanges, fittings/parts, pumps, gauges
 src/compile.ts part-graph → engine-network compiler (union-find joints, seals)
 src/ui         builder, inspector, controls, charts, colormap, sankey
 src/examples   bundled example systems (integration-test fixtures)
-scripts        browser smoke test (node scripts/smoke.mjs after a build)
+scripts        browser smoke test (npm run smoke, after a build) and the portable-build script
 ```
 
 ## Deploy
 
-Pushes to `main` build and publish to GitHub Pages via `.github/workflows/deploy.yml` (Vite `base: './'` keeps the bundle relocatable). Pull requests run the same tests + build via `.github/workflows/ci.yml` before anything merges. Any static file host works: `npm run build` and serve `dist/`.
+Pushes to `main` build and publish to GitHub Pages via `.github/workflows/deploy.yml` (Vite `base: './'` keeps the bundle relocatable). Pull requests run lint, the tests, the build, the headless-browser smoke test and the portable build via `.github/workflows/ci.yml` before anything merges. Any static file host works: `npm run build` and serve `dist/`.
 
 ## References
 
