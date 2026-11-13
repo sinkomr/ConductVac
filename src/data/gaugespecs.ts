@@ -1,7 +1,7 @@
 import type { GasId, GaugeType } from '../types';
 
 /**
- * Gauge behavior table (§1.5). Readings are what the instrument DISPLAYS;
+ * Gauge behavior table. Readings are what the instrument DISPLAYS;
  * true pressure is what the node HAS. Correction/sensitivity factors are
  * representative values.
  *

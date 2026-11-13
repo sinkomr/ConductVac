@@ -1,7 +1,7 @@
 import type { PumpModelSpec } from '../types';
 
 /**
- * Pump catalog (§2.5) — representative generic models; values are
+ * Pump catalog — representative generic models; values are
  * class-typical approximations (labeled "representative" in the UI).
  *
  * cOff: molecular conductance (air) through a stopped/off pump between inlet

@@ -27,9 +27,17 @@ execSync('npx vite build --config vite.portable.config.ts', { cwd: repo, stdio: 
 
 const html = readFileSync(join(out, 'index.html'), 'utf8');
 const assets = readdirSync(join(out, 'assets'));
-const jsFile = assets.find((f) => f.endsWith('.js'));
-const cssFile = assets.find((f) => f.endsWith('.css'));
-if (!jsFile || !cssFile) throw new Error(`expected one js + one css in assets/, got: ${assets.join(', ')}`);
+const jsFiles = assets.filter((f) => f.endsWith('.js'));
+const cssFiles = assets.filter((f) => f.endsWith('.css'));
+// Exactly one of each. A second .js means the engine worker was emitted as
+// its own file — the workerCtor alias in vite.portable.config.ts did not
+// match — and a worker FILE cannot load from file://, which is the whole
+// point of this build.
+if (jsFiles.length !== 1 || cssFiles.length !== 1) {
+  throw new Error(`expected exactly one js + one css in assets/, got: ${assets.join(', ')}`);
+}
+const [jsFile] = jsFiles;
+const [cssFile] = cssFiles;
 
 // "</script" inside JS strings would terminate the inline tag; "<\/script"
 // is byte-for-byte the same string value in JS, so the blanket escape is safe

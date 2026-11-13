@@ -1,7 +1,7 @@
 import type { FlangeSize, FlangeStandard } from '../types';
 
 /**
- * Flange standards & nominal bores (§2.1).
+ * Flange standards & nominal bores.
  * KF/ISO carry Viton seals (wetted area per joint below); CF is copper-sealed
  * (no elastomer load); Swagelok-style compression lines are treated with a
  * small Viton-equivalent ferrule wetted area of ~0.1 cm² (approximation).

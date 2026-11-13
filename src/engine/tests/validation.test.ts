@@ -4,7 +4,7 @@ import { compileConductance } from '../conductance';
 import type { EngineSystemSpec } from '../../types';
 
 /**
- * The §1.6 validation suite — all seven must pass before any UI work.
+ * The validation suite: analytic references for the solver core.
  * Single-species (air) systems are used where the reference is analytic.
  */
 
@@ -32,7 +32,7 @@ function twoByTwo(A: number[][], p0: [number, number]): (t: number) => [number, 
 /** a fixed-speed pump = displacement model with negligible ultimate pressure */
 const fixedS = (sPeak: number) => ({ kind: 'displacement' as const, sPeak, pUlt: 1e-30 });
 
-describe('§1.6 validation suite', () => {
+describe('validation suite', () => {
   it('1. single volume + fixed-S pump: p = p0 exp(-St/V) within 0.5% over 6 decades', () => {
     const V = 10;
     const S = 5;

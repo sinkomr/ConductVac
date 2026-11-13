@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 // base './' makes the build relocatable so it works on GitHub Pages project sites
@@ -11,4 +11,4 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 60000,
   },
-} as any);
+});
