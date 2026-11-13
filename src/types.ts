@@ -177,6 +177,13 @@ export type PumpModelSpec =
   | {
       kind: 'turbo' | 'diffusion';
       sPeak: number; // L/s for N2
+      /**
+       * pumping speed per species relative to N2. Missing species use the
+       * class default (pumps.ts): light gases are NOT pumped √(28/M) faster —
+       * a turbo's blades are slow against H2's thermal speed, so datasheet
+       * H2 speeds sit slightly BELOW the N2 figure.
+       */
+      sRel?: Partial<Record<GasId, number>>;
       /** zero-flow compression ratio per species; missing species interpolated in sqrt(M) */
       k0: Partial<Record<GasId, number>>;
       pCritBack: number; // Torr
