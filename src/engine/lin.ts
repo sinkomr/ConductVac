@@ -70,6 +70,13 @@ export class BandMatrix {
     this.data[i * this.stride + (j - i + this.k)] = v;
   }
 
+  /** Replace row i by the identity row (used to hold an unknown fixed for one Newton iteration). */
+  setRowIdentity(i: number): void {
+    const base = i * this.stride;
+    for (let c = 0; c < this.stride; c++) this.data[base + c] = 0;
+    this.data[base + this.k] = 1;
+  }
+
   get(i: number, j: number): number {
     if (Math.abs(i - j) > this.k) return 0;
     return this.data[i * this.stride + (j - i + this.k)];

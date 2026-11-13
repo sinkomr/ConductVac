@@ -45,12 +45,25 @@ function logSmoothstep(p: number, from: number, to: number): number {
  * rejecting forever. 1% fuzz on the backstream clip is physically invisible.
  */
 function smax(x: number, scale: number): number {
-  const eps = 1e-2 * scale + 1e-300;
+  const eps = SMAX_WIDTH * scale + 1e-300;
   return 0.5 * (x + Math.sqrt(x * x + eps * eps));
 }
+const SMAX_WIDTH = 1e-2;
+/** ∂smax/∂x */
 function dsmax(x: number, scale: number): number {
-  const eps = 1e-2 * scale + 1e-300;
+  const eps = SMAX_WIDTH * scale + 1e-300;
   return 0.5 * (1 + x / Math.sqrt(x * x + eps * eps));
+}
+/**
+ * ∂smax/∂scale. The smoothing width follows the local pressures, so it is
+ * part of the Jacobian: dropping it leaves Newton linearly convergent
+ * exactly where the clip is active — a species parked at the pump's
+ * compression equilibrium — and ten iterations a step there pins the
+ * timestep for hours of simulated time.
+ */
+function dsmaxScale(x: number, scale: number): number {
+  const eps = SMAX_WIDTH * scale + 1e-300;
+  return (0.5 * eps * SMAX_WIDTH) / Math.sqrt(x * x + eps * eps);
 }
 
 /**
@@ -402,8 +415,11 @@ export class PumpRuntime {
     const a = this.A[gi];
     if (a === 0) return [0, 0];
     const kap = this.kap[gi];
-    const s = dsmax(pIn - kap * pBack, pIn + kap * pBack);
-    return [a * s, -a * s * kap];
+    const x = pIn - kap * pBack;
+    const scale = pIn + kap * pBack;
+    const dx = dsmax(x, scale);
+    const ds = dsmaxScale(x, scale);
+    return [a * (dx + ds), a * kap * (ds - dx)];
   }
 
   /** Effective total speed for UI: Σ Q_g / p_total (L/s). */

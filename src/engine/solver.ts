@@ -129,6 +129,9 @@ export class Sim {
   lastFail = '';
   /** diagnostic: node dominating the last error estimate */
   lastEstWorst = '';
+  /** diagnostics: local-error estimate and Newton iteration count of the last accepted step */
+  lastEst = 0;
+  lastNewtonIters = 0;
 
   private events: SimEvent[] = [];
   private readonly nS: number;
@@ -727,6 +730,12 @@ export class Sim {
     const gLo = lumped ? 0 : g;
     const gHi = lumped ? nS : g + 1;
     const usePredictor = this.estValid && Number.isFinite(this.dtPrev);
+    // The floor of a node TOTAL is the sum of its species' floors: with every
+    // species parked at pFloor the old total is nS·pFloor, and a lumped
+    // unknown allowed to sink to pFloor would walk that gap (and back) on
+    // every step — five Newton iterations a step for an empty, valved-off
+    // volume, which is enough to stop the timestep growing.
+    const uMin = lumped ? U_MIN + Math.log(nS) : U_MIN;
 
     // start iterate
     for (let e = 0; e < nEq; e++) {
@@ -741,7 +750,7 @@ export class Sim {
         ug = this.u[off + i];
         if (usePredictor) ug += Math.max(-2, Math.min(2, this.duPrev[off + i] * (dt / this.dtPrev)));
       }
-      this.uWork[i] = Math.max(U_MIN, Math.min(U_MAX, ug));
+      this.uWork[i] = Math.max(uMin, Math.min(U_MAX, ug));
     }
 
     for (let iter = 1; iter <= opts.maxNewton; iter++) {
@@ -829,8 +838,19 @@ export class Sim {
         }
 
         const uOld = lumped ? this.uTotOld[i] : this.u[off + i];
-        rhs[e] = -(this.uWork[i] - uOld - gfac * R - this.dlnT[i]);
-        band.add(e, e, 1 - gfac * dRdui + gfac * R);
+        const res = -(this.uWork[i] - uOld - gfac * R - this.dlnT[i]);
+        if (res < 0 && this.uWork[i] <= uMin) {
+          // Pinned at the pressure floor and still pushing down: hold it fixed
+          // for this iteration. Left in the system, its (clamped-away) step
+          // is still assumed by every neighbour's update, and Newton decays
+          // only linearly — ten iterations a step for a trace gas behind a
+          // turbo's compression ratio, which blocks all timestep growth.
+          band.setRowIdentity(e);
+          rhs[e] = 0;
+        } else {
+          rhs[e] = res;
+          band.add(e, e, 1 - gfac * dRdui + gfac * R);
+        }
       }
 
       band.equilibrate(rhs);
@@ -851,7 +871,7 @@ export class Sim {
         }
         const i = net.nodeOfEq[e];
         const cur = this.uWork[i];
-        const move = Math.max(U_MIN, Math.min(U_MAX, cur + rhs[e])) - cur;
+        const move = Math.max(uMin, Math.min(U_MAX, cur + rhs[e])) - cur;
         rhs[e] = move;
         const am = Math.abs(move);
         if (am > dmax) {
@@ -888,6 +908,24 @@ export class Sim {
     return -1;
   }
 
+  /**
+   * Does species g matter anywhere in the candidate state — above the
+   * don't-care pressure and above 1e-7 of its node's total? This is the same
+   * test the error estimate applies per entry. A gas that fails it at every
+   * node (helium at 1e-11 Torr in a foreline at 1e-2) cannot be measured, so
+   * the Newton iterations it happens to need must not hold the timestep down.
+   */
+  private speciesMatters(g: number): boolean {
+    const { net, nN } = this;
+    const off = g * nN;
+    for (let e = 0; e < net.nEq; e++) {
+      const i = net.nodeOfEq[e];
+      const un = this.uNew[off + i];
+      if (un >= U_CARE && Math.exp(un) >= 1e-7 * this.pTotWork[i]) return true;
+    }
+    return false;
+  }
+
   private lastWorstEq = -1;
   private lastDmax = 0;
 
@@ -908,10 +946,14 @@ export class Sim {
       this.freeze(this.t + dtTry);
 
       let newtonIters = 0;
+      // iteration count that may hold back timestep growth: excludes species
+      // that are physically irrelevant everywhere (see speciesMatters)
+      let gateIters = 0;
       let ok = true;
       const seg = this.stepSegregated;
       for (let outer = 0; outer <= opts.maxOuter && ok; outer++) {
         newtonIters = 0;
+        gateIters = 0;
         // pressure pass: one lumped solve for the totals, or (no bulk flow
         // anywhere) the complete per-species solve
         for (let g = 0; g < (seg ? 1 : nS); g++) {
@@ -921,6 +963,7 @@ export class Sim {
             break;
           }
           newtonIters = Math.max(newtonIters, it);
+          if (seg || this.speciesMatters(g)) gateIters = Math.max(gateIters, it);
         }
         if (!ok || outer === opts.maxOuter) break;
         this.refreshTotalsFromCandidate();
@@ -937,6 +980,7 @@ export class Sim {
             break;
           }
           newtonIters = Math.max(newtonIters, it);
+          if (this.speciesMatters(g)) gateIters = Math.max(gateIters, it);
         }
       }
 
@@ -1008,6 +1052,8 @@ export class Sim {
       for (let i = 0; i < nN; i++) this.rateNode[i] /= dtTry;
       this.stats.steps++;
       this.stats.maxNewtonIters = Math.max(this.stats.maxNewtonIters, newtonIters);
+      this.lastEst = est;
+      this.lastNewtonIters = newtonIters;
       this.duPrev.set(this.du);
       for (let i = 0; i < nN; i++) {
         this.duTotPrev[i] = Math.log(Math.max(this.totalAt(i), opts.pFloor)) - this.uTotOld[i];
@@ -1018,7 +1064,7 @@ export class Sim {
       this.afterAccept(dtTry);
 
       // adapt
-      if (newtonIters <= 3 && (est <= opts.errGrow || !this.estValid)) {
+      if (gateIters <= 3 && est <= opts.errGrow) {
         this.dt = Math.min(dtTry * 1.5, opts.dtMax);
       } else if (newtonIters >= opts.maxNewton - 8) {
         this.dt = Math.max(dtTry / 2, opts.dtMin);
