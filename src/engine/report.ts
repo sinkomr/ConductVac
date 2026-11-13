@@ -50,17 +50,7 @@ export interface ChamberDiagnosis {
 
 /** signed throughput through an edge, positive = out of `from`, Torr·L/s */
 function edgeFlowFrom(sim: Sim, eIdx: number, from: number): number {
-  const net = sim.net;
-  const e = net.edges[eIdx];
-  const other = e.a === from ? e.b : e.a;
-  const pMean = 0.5 * (sim.totalAt(e.a) + sim.totalAt(e.b));
-  const scale = e.meshFactor * (e.pumpInternal ? e.pumpInternal.offConductance() : 1);
-  let q = 0;
-  for (let g = 0; g < net.species.length; g++) {
-    const C = e.model.cOf(g, pMean, e.open) * scale;
-    q += C * (sim.p[g * net.nodes.length + from] - sim.p[g * net.nodes.length + other]);
-  }
-  return q;
+  return sim.edgeFlowFrom(eIdx, from);
 }
 
 function pumpThroughput(sim: Sim, pm: PumpRuntime): number {

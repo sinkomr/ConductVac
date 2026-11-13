@@ -121,8 +121,12 @@ export interface EngineNodeSpec {
 }
 
 export type ConductanceSpec =
-  /** circular tube; d, L in cm; bends90 adds 1.33·d equivalent length each */
-  | { kind: 'tube'; d: number; L: number; bends90?: number; lengthFactor?: number }
+  /**
+   * circular tube; d, L in cm; bends90 adds 1.33·d equivalent length each.
+   * entrance (default 1) weights the molecular entrance-aperture loss: the
+   * segments of one auto-segmented tube share a total weight of 1.
+   */
+  | { kind: 'tube'; d: number; L: number; bends90?: number; lengthFactor?: number; entrance?: number }
   /** thin aperture of given area (cm²) */
   | { kind: 'aperture'; area: number }
   /** aperture in series with a body tube (butterfly/throttle valves) */
